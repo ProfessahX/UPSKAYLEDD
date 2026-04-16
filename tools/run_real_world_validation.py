@@ -5,7 +5,6 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from collections import Counter
 from pathlib import Path
@@ -17,6 +16,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from upskayledd.app_service import AppService
+from upskayledd.core.paths import RuntimeTemporaryDirectory, resolve_runtime_path
 from upskayledd.integrations.ffprobe import FFprobeAdapter
 from upskayledd.media_metrics import summarize_media_probe
 from upskayledd.models import ComparisonMode, FidelityMode, InspectionReport, ProjectManifest
@@ -225,7 +225,7 @@ def probe_vspipe_fps(path: str | Path) -> float | None:
         return None
     resolved = Path(path).resolve()
     try:
-        probe_root = Path(tempfile.gettempdir()) / "upskayledd_validation_probe"
+        probe_root = resolve_runtime_path("runtime/validation/probe-cache")
         probe_root.mkdir(parents=True, exist_ok=True)
         stat = resolved.stat()
         cache_token = f"{stat.st_size}-{stat.st_mtime_ns}"
@@ -979,7 +979,7 @@ def main(argv: list[str] | None = None) -> int:
     if not target.exists():
         raise SystemExit(f"Target does not exist: {target}")
 
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with RuntimeTemporaryDirectory("runtime/validation/scratch", prefix="real-world-validation-") as temp_dir:
         temp_root = Path(temp_dir)
         config_dir = create_temp_config(temp_root)
         service = AppService(str(config_dir))

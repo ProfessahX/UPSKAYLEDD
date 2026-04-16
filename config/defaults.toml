@@ -8,6 +8,7 @@ output_name_template = "{stem}"
 output_collision_template = "__dup{index}"
 state_db_path = "runtime/state/upskayledd.sqlite3"
 preview_cache_dir = "runtime/cache/previews"
+scratch_dir = "runtime/scratch"
 project_history_scope = "global"
 max_recent_targets = 6
 supported_extensions = [

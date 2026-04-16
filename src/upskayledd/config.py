@@ -21,6 +21,7 @@ class AppSettings:
     output_collision_template: str
     state_db_path: str
     preview_cache_dir: str
+    scratch_dir: str
     project_history_scope: str
     max_recent_targets: int
     supported_extensions: tuple[str, ...]
@@ -485,6 +486,7 @@ def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
             output_collision_template=app_defaults.get("output_collision_template", "__dup{index}"),
             state_db_path=app_defaults["state_db_path"],
             preview_cache_dir=app_defaults["preview_cache_dir"],
+            scratch_dir=app_defaults.get("scratch_dir", "runtime/scratch"),
             project_history_scope=app_defaults["project_history_scope"],
             max_recent_targets=int(app_defaults.get("max_recent_targets", 6)),
             supported_extensions=tuple(sorted({str(item).lower() for item in app_defaults["supported_extensions"]})),

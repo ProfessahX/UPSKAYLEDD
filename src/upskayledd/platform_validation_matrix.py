@@ -6,12 +6,12 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from upskayledd.config import load_app_config
+from upskayledd.core.paths import RuntimeTemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -114,41 +114,51 @@ def build_watch_items(contexts: list[dict[str, Any]]) -> list[str]:
     return items
 
 
-def _native_payload(repo_root: Path) -> dict[str, Any]:
+def _failure_detail(label: str, exc: subprocess.CalledProcessError) -> RuntimeError:
+    stderr = str(exc.stderr or "").replace("\x00", "").strip()
+    stdout = str(exc.stdout or "").replace("\x00", "").strip()
+    detail = stderr or stdout or f"exit code {exc.returncode}"
+    return RuntimeError(f"{label} failed: {detail}")
+
+
+def _native_payload(repo_root: Path, scratch_root: str | Path) -> dict[str, Any]:
     src_dir = repo_root / "src"
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with RuntimeTemporaryDirectory(scratch_root, prefix="platform-matrix-native-") as temp_dir:
         temp_root = Path(temp_dir)
         doctor_json = temp_root / "doctor.json"
         setup_json = temp_root / "setup.json"
         env = dict(os.environ)
         env["PYTHONPATH"] = str(src_dir)
-        subprocess.run(
-            [sys.executable, "-m", "upskayledd", "doctor", "--json-output", str(doctor_json)],
-            cwd=repo_root,
-            env=env,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            [sys.executable, "-m", "upskayledd", "setup-plan", "--json-output", str(setup_json)],
-            cwd=repo_root,
-            env=env,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "upskayledd", "doctor", "--json-output", str(doctor_json)],
+                cwd=repo_root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                [sys.executable, "-m", "upskayledd", "setup-plan", "--json-output", str(setup_json)],
+                cwd=repo_root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise _failure_detail("Native Windows validation command", exc) from exc
         return {
             "doctor": json.loads(doctor_json.read_text(encoding="utf-8")),
             "setup_plan": json.loads(setup_json.read_text(encoding="utf-8")),
         }
 
 
-def _wsl_payload(repo_root: Path) -> dict[str, Any]:
+def _wsl_payload(repo_root: Path, scratch_root: str | Path) -> dict[str, Any]:
     wsl = shutil.which("wsl.exe")
     if not wsl:
         raise RuntimeError("wsl.exe is not available on this machine.")
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with RuntimeTemporaryDirectory(scratch_root, prefix="platform-matrix-wsl-") as temp_dir:
         temp_root = Path(temp_dir)
         doctor_json = temp_root / "doctor.json"
         setup_json = temp_root / "setup.json"
@@ -160,12 +170,15 @@ def _wsl_payload(repo_root: Path) -> dict[str, Any]:
             f"PYTHONPATH=src python3 -m upskayledd doctor --json-output {shlex.quote(doctor_json_wsl)} >/dev/null && "
             f"PYTHONPATH=src python3 -m upskayledd setup-plan --json-output {shlex.quote(setup_json_wsl)} >/dev/null"
         )
-        subprocess.run(
-            [wsl, "bash", "-lc", command],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            subprocess.run(
+                [wsl, "bash", "-lc", command],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise _failure_detail("Linux-side WSL validation command", exc) from exc
         return {
             "doctor": json.loads(doctor_json.read_text(encoding="utf-8")),
             "setup_plan": json.loads(setup_json.read_text(encoding="utf-8")),
@@ -173,10 +186,12 @@ def _wsl_payload(repo_root: Path) -> dict[str, Any]:
 
 
 def collect_contexts(repo_root: Path) -> list[dict[str, Any]]:
-    actionable_check_names = set(load_app_config(str(repo_root / "config")).runtime_actions.checks.keys())
+    app_config = load_app_config(str(repo_root / "config"))
+    actionable_check_names = set(app_config.runtime_actions.checks.keys())
+    scratch_root = app_config.app.scratch_dir
     contexts: list[dict[str, Any]] = []
     try:
-        native_payload = _native_payload(repo_root)
+        native_payload = _native_payload(repo_root, scratch_root)
     except Exception as exc:  # noqa: BLE001
         contexts.append(
             summarize_context(
@@ -199,7 +214,7 @@ def collect_contexts(repo_root: Path) -> list[dict[str, Any]]:
             )
         )
     try:
-        wsl_payload = _wsl_payload(repo_root)
+        wsl_payload = _wsl_payload(repo_root, scratch_root)
     except Exception as exc:  # noqa: BLE001
         contexts.append(
             summarize_context(

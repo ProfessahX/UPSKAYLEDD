@@ -19,6 +19,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.app.output_layout, "preserve_relative")
         self.assertEqual(config.app.output_name_template, "{stem}")
         self.assertEqual(config.app.output_collision_template, "__dup{index}")
+        self.assertEqual(config.app.scratch_dir, "runtime/scratch")
         self.assertTrue(config.app.probe_unknown_extensions)
         self.assertTrue(config.app.probe_extensionless_files)
         self.assertEqual(config.app.default_encode_profile_id, "hevc_balanced_archive")
