@@ -17,6 +17,8 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from upskayledd.app_service import AppService
+from upskayledd.integrations.ffprobe import FFprobeAdapter
+from upskayledd.media_metrics import summarize_media_probe
 from upskayledd.models import ComparisonMode, FidelityMode, InspectionReport, ProjectManifest
 
 
@@ -176,6 +178,106 @@ def _metric_rollup_bucket(
     height = _safe_int(video.get("height"))
     if width and height:
         resolutions.append(f"{width}x{height}")
+
+
+def _probe_metrics(ffprobe_adapter: Any | None, path: str | Path) -> dict[str, Any]:
+    if ffprobe_adapter is None or not bool(ffprobe_adapter.is_available()):
+        return {}
+    try:
+        return summarize_media_probe(ffprobe_adapter.probe(path))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _parse_fps_ratio(value: str) -> float | None:
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if "/" in raw:
+        numerator, denominator = raw.split("/", maxsplit=1)
+        numerator_value = _safe_float(numerator)
+        denominator_value = _safe_float(denominator)
+        if numerator_value is None or denominator_value in (None, 0.0):
+            return None
+        return numerator_value / denominator_value
+    return _safe_float(raw)
+
+
+def _extract_vspipe_fps(output: str) -> float | None:
+    for line in output.splitlines():
+        if not line.startswith("FPS:"):
+            continue
+        ratio = line.partition(":")[2].strip().split(" ", maxsplit=1)[0]
+        return _parse_fps_ratio(ratio)
+    return None
+
+
+def probe_vspipe_fps(path: str | Path) -> float | None:
+    vspipe = shutil.which("vspipe")
+    if not vspipe:
+        return None
+    resolved = Path(path).resolve()
+    probe_root = resolved.parent / ".validation_probe"
+    probe_root.mkdir(parents=True, exist_ok=True)
+    try:
+        stat = resolved.stat()
+        cache_token = f"{stat.st_size}-{stat.st_mtime_ns}"
+    except OSError:
+        cache_token = "unknown"
+    index_path = probe_root / f"{resolved.stem}-{cache_token}.ffindex"
+    script_path = probe_root / f"{resolved.stem}-{cache_token}.vpy"
+    script_path.write_text(
+        (
+            "import vapoursynth as vs\n"
+            "core = vs.core\n"
+            f"clip = core.ffms2.Source(source={str(resolved)!r}, cache=True, cachefile={str(index_path)!r})\n"
+            "clip.set_output()\n"
+        ),
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [vspipe, "--info", str(script_path), "-"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    fps = _extract_vspipe_fps(completed.stdout) or _extract_vspipe_fps(completed.stderr)
+    if fps is not None:
+        return fps
+    if completed.returncode != 0:
+        return None
+    return None
+
+
+def sample_copy_fallback_reasons(
+    source_metrics: dict[str, Any] | None,
+    sample_metrics: dict[str, Any] | None,
+    *,
+    fps_tolerance: float = 0.5,
+    sample_pipeline_fps: float | None = None,
+) -> list[str]:
+    source_payload = dict(source_metrics or {})
+    sample_payload = dict(sample_metrics or {})
+    if not source_payload or not sample_payload:
+        return []
+    reasons: list[str] = []
+    source_video = dict(source_payload.get("video", {}))
+    sample_video = dict(sample_payload.get("video", {}))
+    source_fps = _safe_float(source_video.get("avg_frame_rate_fps"))
+    sample_fps = _safe_float(sample_video.get("avg_frame_rate_fps"))
+    if source_fps is not None and sample_fps is not None and abs(source_fps - sample_fps) > fps_tolerance:
+        reasons.append("copied sample drifted away from the source cadence")
+    if source_fps is not None and sample_pipeline_fps is not None and abs(source_fps - sample_pipeline_fps) > fps_tolerance:
+        reasons.append("copied sample drifts under ffms2/vspipe compared with the source cadence")
+    source_audio = int(dict(source_payload.get("audio", {})).get("stream_count", 0) or 0)
+    sample_audio = int(dict(sample_payload.get("audio", {})).get("stream_count", 0) or 0)
+    if sample_audio < source_audio:
+        reasons.append("copied sample lost audio streams")
+    source_subtitles = int(dict(source_payload.get("subtitle", {})).get("stream_count", 0) or 0)
+    sample_subtitles = int(dict(sample_payload.get("subtitle", {})).get("stream_count", 0) or 0)
+    if sample_subtitles < source_subtitles:
+        reasons.append("copied sample lost subtitle streams")
+    return reasons
 
 
 def build_metric_overview(media_metrics: dict[str, Any] | None) -> dict[str, Any]:
@@ -339,6 +441,9 @@ def extract_sample(source: Path, sample_path: Path, *, sample_seconds: float, st
     if not ffmpeg:
         raise RuntimeError("ffmpeg is required for real-world validation.")
 
+    ffprobe = FFprobeAdapter()
+    source_metrics = _probe_metrics(ffprobe, source)
+    copy_fallback_reasons: list[str] = []
     copy_command = [
         ffmpeg,
         "-y",
@@ -356,9 +461,51 @@ def extract_sample(source: Path, sample_path: Path, *, sample_seconds: float, st
     ]
     copy_run = subprocess.run(copy_command, capture_output=True, text=True, check=False)
     if copy_run.returncode == 0 and sample_path.exists() and sample_path.stat().st_size > 0:
-        return {"mode": "stream_copy", "sample_path": str(sample_path)}
+        sample_metrics = _probe_metrics(ffprobe, sample_path)
+        copy_fallback_reasons = sample_copy_fallback_reasons(
+            source_metrics,
+            sample_metrics,
+            sample_pipeline_fps=probe_vspipe_fps(sample_path),
+        )
+        if not copy_fallback_reasons:
+            return {"mode": "stream_copy", "sample_path": str(sample_path)}
+        sample_path.unlink(missing_ok=True)
 
     transcode_command = [
+        ffmpeg,
+        "-y",
+        "-ss",
+        f"{start_seconds:.3f}",
+        "-i",
+        str(source),
+        "-t",
+        f"{sample_seconds:.3f}",
+        "-map",
+        "0",
+        "-map_chapters",
+        "0",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "copy",
+        "-c:s",
+        "copy",
+        str(sample_path),
+    ]
+    transcode_run = subprocess.run(transcode_command, capture_output=True, text=True, check=False)
+    if transcode_run.returncode == 0 and sample_path.exists() and sample_path.stat().st_size > 0:
+        payload = {"mode": "transcode_fallback", "sample_path": str(sample_path)}
+        if copy_run.returncode == 0:
+            payload["fallback_reasons"] = copy_fallback_reasons
+        return payload
+
+    minimal_transcode_command = [
         ffmpeg,
         "-y",
         "-ss",
@@ -383,11 +530,14 @@ def extract_sample(source: Path, sample_path: Path, *, sample_seconds: float, st
         "aac",
         str(sample_path),
     ]
-    transcode_run = subprocess.run(transcode_command, capture_output=True, text=True, check=False)
-    if transcode_run.returncode != 0 or not sample_path.exists() or sample_path.stat().st_size <= 0:
-        stderr = transcode_run.stderr.strip() or copy_run.stderr.strip()
+    minimal_transcode_run = subprocess.run(minimal_transcode_command, capture_output=True, text=True, check=False)
+    if minimal_transcode_run.returncode != 0 or not sample_path.exists() or sample_path.stat().st_size <= 0:
+        stderr = minimal_transcode_run.stderr.strip() or transcode_run.stderr.strip() or copy_run.stderr.strip()
         raise RuntimeError(f"Could not extract sample from {source.name}: {stderr}")
-    return {"mode": "transcode_fallback", "sample_path": str(sample_path)}
+    payload = {"mode": "transcode_fallback_minimal", "sample_path": str(sample_path)}
+    if copy_run.returncode == 0:
+        payload["fallback_reasons"] = copy_fallback_reasons
+    return payload
 
 
 def summarize_preview(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -460,6 +610,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
     def summarize_mode(items: list[dict[str, Any]], key: str) -> dict[str, Any]:
         size_ratios: list[float] = []
         cadence_change_count = 0
+        decode_cadence_mismatch_count = 0
         subtitle_change_count = 0
         stream_loss_count = 0
         oversized_delivery_count = 0
@@ -492,6 +643,11 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             )
             input_fps = _safe_float(input_video.get("avg_frame_rate_fps"))
             output_fps = _safe_float(output_video.get("avg_frame_rate_fps"))
+            sample_clip_cadence = dict(item.get("sample_clip_cadence", {}) or {})
+            sample_probe_fps = _safe_float(sample_clip_cadence.get("probe_frame_rate_fps"))
+            sample_decode_fps = _safe_float(sample_clip_cadence.get("decode_frame_rate_fps"))
+            if sample_probe_fps is not None and sample_decode_fps is not None and abs(sample_probe_fps - sample_decode_fps) >= 0.5:
+                decode_cadence_mismatch_count += 1
             if input_fps is not None and output_fps is not None and abs(input_fps - output_fps) >= 0.5:
                 cadence_change_count += 1
             if comparison.get("subtitle_codec_changed") or int(comparison.get("subtitle_stream_delta", 0) or 0) != 0:
@@ -510,6 +666,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
         return {
             "completed_runs": completed_runs,
             "errored_runs": errored_runs,
+            "decode_cadence_mismatch_count": decode_cadence_mismatch_count,
             "oversized_delivery_count": oversized_delivery_count,
             "cadence_change_count": cadence_change_count,
             "subtitle_change_count": subtitle_change_count,
@@ -576,6 +733,10 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
     if canonical["cadence_change_count"]:
         watch_items.append(
             f"Canonical runs changed frame rate on {canonical['cadence_change_count']}/{source_count} sampled source(s)."
+        )
+    if canonical["decode_cadence_mismatch_count"]:
+        watch_items.append(
+            f"Sample metadata and ffms2 decode cadence disagreed on {canonical['decode_cadence_mismatch_count']}/{source_count} sampled source(s), so cadence warnings need decode-aware interpretation."
         )
     if canonical["oversized_delivery_count"] or degraded["oversized_delivery_count"]:
         watch_items.append(
@@ -644,6 +805,8 @@ def run_validation_for_source(
     stage_lookup = {stage.stage_id: stage for stage in manifest.resolved_pipeline_stages}
     model_ids = list(manifest.model_preferences)
     backend_id = str(sample_recommendation["backend_selection"].get("backend_id", "planning_only"))
+    sample_probe_metrics = _probe_metrics(service.ffprobe, sample_path)
+    sample_decode_fps = probe_vspipe_fps(sample_path)
 
     cleanup_preview = None
     if "cleanup" in stage_lookup:
@@ -718,6 +881,10 @@ def run_validation_for_source(
         },
         "sample_clip": sample_info,
         "sample_clip_stats": file_stats(sample_info.get("sample_path")),
+        "sample_clip_cadence": {
+            "probe_frame_rate_fps": _safe_float(dict(sample_probe_metrics.get("video", {})).get("avg_frame_rate_fps")),
+            "decode_frame_rate_fps": sample_decode_fps,
+        },
         "cleanup_preview": summarize_preview(cleanup_preview),
         "upscale_preview": summarize_preview(upscale_preview),
         "degraded_run": summarize_run_manifest(degraded_manifest),

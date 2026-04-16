@@ -23,6 +23,31 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertIsNone(module.normalize_encode_profile_id("   "))
         self.assertEqual(module.normalize_encode_profile_id("hevc_balanced_archive"), "hevc_balanced_archive")
 
+    def test_sample_copy_fallback_reasons_flags_cadence_and_stream_loss(self) -> None:
+        module = _load_module()
+        reasons = module.sample_copy_fallback_reasons(
+            {
+                "audio": {"stream_count": 1},
+                "subtitle": {"stream_count": 2},
+                "video": {"avg_frame_rate_fps": 59.94},
+            },
+            {
+                "audio": {"stream_count": 1},
+                "subtitle": {"stream_count": 1},
+                "video": {"avg_frame_rate_fps": 29.97},
+            },
+            sample_pipeline_fps=28.98,
+        )
+
+        self.assertTrue(any("cadence" in reason for reason in reasons))
+        self.assertTrue(any("subtitle" in reason for reason in reasons))
+
+    def test_extract_vspipe_fps_parses_info_output(self) -> None:
+        module = _load_module()
+
+        self.assertEqual(module._extract_vspipe_fps("Width: 1440\nFPS: 14696/503 (29.217 fps)\n"), 14696 / 503)
+        self.assertIsNone(module._extract_vspipe_fps("Width: 1440\nFrames: 240\n"))
+
     def test_summarize_run_manifest_surfaces_size_warning_state(self) -> None:
         module = _load_module()
         summary = module.summarize_run_manifest(
@@ -158,6 +183,10 @@ class RealWorldValidationToolTests(unittest.TestCase):
                             }
                         },
                     },
+                    "sample_clip_cadence": {
+                        "probe_frame_rate_fps": 59.94,
+                        "decode_frame_rate_fps": 23.98,
+                    },
                 },
                 {
                     "inspection": {
@@ -209,6 +238,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["encode_profiles"], ["h264_compatibility_mp4", "hevc_balanced_archive"])
         self.assertEqual(summary["canonical"]["completed_runs"], 2)
         self.assertEqual(summary["canonical"]["cadence_change_count"], 1)
+        self.assertEqual(summary["canonical"]["decode_cadence_mismatch_count"], 1)
         self.assertEqual(summary["canonical"]["oversized_delivery_count"], 1)
         self.assertEqual(summary["canonical"]["subtitle_change_count"], 1)
         self.assertEqual(summary["canonical"]["stream_loss_count"], 1)
@@ -226,6 +256,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
             },
         )
         self.assertTrue(any("changed frame rate" in item for item in summary["watch_items"]))
+        self.assertTrue(any("decode-aware interpretation" in item for item in summary["watch_items"]))
         self.assertTrue(any("larger than its source clip" in item for item in summary["watch_items"]))
         self.assertTrue(any("dropped subtitle or chapter streams" in item for item in summary["watch_items"]))
 
