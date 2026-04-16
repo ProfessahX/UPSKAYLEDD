@@ -627,6 +627,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
         output_video_codecs: list[str] = []
         output_resolutions: list[str] = []
         output_frame_rates: list[str] = []
+        probe_frame_rates: list[str] = []
         decode_frame_rates: list[str] = []
         for item in result_items:
             run = dict(item.get(key) or {})
@@ -658,6 +659,9 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             sample_clip_cadence = dict(item.get("sample_clip_cadence", {}) or {})
             sample_probe_fps = _safe_float(sample_clip_cadence.get("probe_frame_rate_fps"))
             sample_decode_fps = _safe_float(sample_clip_cadence.get("decode_frame_rate_fps"))
+            probe_fps_label = _fps_bucket_label(sample_probe_fps)
+            if probe_fps_label:
+                probe_frame_rates.append(probe_fps_label)
             decode_fps_label = _fps_bucket_label(sample_decode_fps)
             if decode_fps_label:
                 decode_frame_rates.append(decode_fps_label)
@@ -698,6 +702,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             "output_video_codecs": _count_map(output_video_codecs),
             "output_resolutions": _count_map(output_resolutions),
             "output_frame_rates": _count_map(output_frame_rates),
+            "probe_frame_rates": _count_map(probe_frame_rates),
             "decode_frame_rates": _count_map(decode_frame_rates),
         }
 
