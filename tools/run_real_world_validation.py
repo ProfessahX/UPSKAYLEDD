@@ -630,6 +630,7 @@ def summarize_runtime_context(
 
 def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     items = list(results or [])
+    sample_extraction_modes: list[str] = []
 
     def summarize_mode(result_items: list[dict[str, Any]], key: str) -> dict[str, Any]:
         size_ratios: list[float] = []
@@ -751,6 +752,9 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
     source_resolutions: list[str] = []
     guidance_messages: list[str] = []
     for item in items:
+        sample_mode = str(dict(item.get("sample_clip", {}) or {}).get("mode", "")).strip()
+        if sample_mode:
+            sample_extraction_modes.append(sample_mode)
         canonical_metrics = dict(dict(item.get("canonical_run", {})).get("media_metrics", {}) or {})
         degraded_metrics = dict(dict(item.get("degraded_run", {})).get("media_metrics", {}) or {})
         source_metrics = dict(canonical_metrics.get("input", {}) or degraded_metrics.get("input", {}) or {})
@@ -783,6 +787,11 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
     if canonical["decode_cadence_mismatch_count"]:
         watch_items.append(
             f"Sample metadata and ffms2 decode cadence disagreed on {canonical['decode_cadence_mismatch_count']}/{source_count} sampled source(s), so cadence warnings need decode-aware interpretation."
+        )
+    non_stream_copy_count = sum(1 for mode in sample_extraction_modes if mode and mode != "stream_copy")
+    if canonical["cadence_change_count"] and non_stream_copy_count:
+        watch_items.append(
+            f"{non_stream_copy_count}/{source_count} sampled source(s) required non-stream-copy extraction before validation, so cadence warnings should be confirmed on fuller source clips when motion trust matters."
         )
     if len(canonical["output_frame_rates"]) > 1:
         if canonical["output_frame_rates"] == canonical["decode_frame_rates"]:
@@ -822,6 +831,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             "source_resolutions": _count_map(source_resolutions),
             "guidance_messages": _count_map(guidance_messages),
         },
+        "sample_extraction_modes": _count_map(sample_extraction_modes),
         "canonical": canonical,
         "degraded": degraded,
         "watch_items": watch_items,

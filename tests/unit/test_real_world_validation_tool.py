@@ -161,6 +161,9 @@ class RealWorldValidationToolTests(unittest.TestCase):
                         "detected_source_class": "sd_live_action_ntsc",
                         "recommended_profile_id": "sd_live_action_ntsc",
                     },
+                    "sample_clip": {
+                        "mode": "transcode_fallback",
+                    },
                     "output_policy": {
                         "encode_profile_id": "hevc_balanced_archive",
                     },
@@ -205,6 +208,9 @@ class RealWorldValidationToolTests(unittest.TestCase):
                     "inspection": {
                         "detected_source_class": "sd_live_action_ntsc",
                         "recommended_profile_id": "sd_live_action_ntsc",
+                    },
+                    "sample_clip": {
+                        "mode": "stream_copy",
                     },
                     "output_policy": {
                         "encode_profile_id": "h264_compatibility_mp4",
@@ -265,6 +271,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["canonical"]["output_frame_rates"], {"23.98 fps": 1, "29.97 fps": 1})
         self.assertEqual(summary["canonical"]["probe_frame_rates"], {"59.94 fps": 1})
         self.assertEqual(summary["canonical"]["decode_frame_rates"], {"23.98 fps": 1})
+        self.assertEqual(summary["sample_extraction_modes"], {"stream_copy": 1, "transcode_fallback": 1})
         self.assertEqual(
             summary["media_rollup"]["guidance_messages"],
             {
@@ -274,6 +281,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
         )
         self.assertTrue(any("changed frame rate" in item for item in summary["watch_items"]))
         self.assertTrue(any("decode-aware interpretation" in item for item in summary["watch_items"]))
+        self.assertTrue(any("non-stream-copy extraction" in item for item in summary["watch_items"]))
         self.assertTrue(any("mixed frame-rate groups" in item for item in summary["watch_items"]))
         self.assertTrue(any("larger than its source clip" in item for item in summary["watch_items"]))
         self.assertTrue(any("dropped subtitle or chapter streams" in item for item in summary["watch_items"]))
