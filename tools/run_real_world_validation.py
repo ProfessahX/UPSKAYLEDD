@@ -59,6 +59,13 @@ def _count_map(values: list[str]) -> dict[str, int]:
     return dict(sorted(counter.items(), key=lambda item: (-item[1], item[0])))
 
 
+def _fps_bucket_label(value: object) -> str:
+    fps = _safe_float(value)
+    if fps is None:
+        return ""
+    return f"{fps:.2f} fps"
+
+
 def _format_size(value: object) -> str:
     size_bytes = _safe_int(value)
     if size_bytes is None:
@@ -619,6 +626,8 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
         output_containers: list[str] = []
         output_video_codecs: list[str] = []
         output_resolutions: list[str] = []
+        output_frame_rates: list[str] = []
+        decode_frame_rates: list[str] = []
         for item in result_items:
             run = dict(item.get(key) or {})
             if str(run.get("error", "")).strip():
@@ -643,9 +652,15 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             )
             input_fps = _safe_float(input_video.get("avg_frame_rate_fps"))
             output_fps = _safe_float(output_video.get("avg_frame_rate_fps"))
+            output_fps_label = _fps_bucket_label(output_fps)
+            if output_fps_label:
+                output_frame_rates.append(output_fps_label)
             sample_clip_cadence = dict(item.get("sample_clip_cadence", {}) or {})
             sample_probe_fps = _safe_float(sample_clip_cadence.get("probe_frame_rate_fps"))
             sample_decode_fps = _safe_float(sample_clip_cadence.get("decode_frame_rate_fps"))
+            decode_fps_label = _fps_bucket_label(sample_decode_fps)
+            if decode_fps_label:
+                decode_frame_rates.append(decode_fps_label)
             if (
                 key == "canonical_run"
                 and sample_probe_fps is not None
@@ -682,6 +697,8 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             "output_containers": _count_map(output_containers),
             "output_video_codecs": _count_map(output_video_codecs),
             "output_resolutions": _count_map(output_resolutions),
+            "output_frame_rates": _count_map(output_frame_rates),
+            "decode_frame_rates": _count_map(decode_frame_rates),
         }
 
     canonical = summarize_mode(items, "canonical_run")
@@ -744,6 +761,10 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
     if canonical["decode_cadence_mismatch_count"]:
         watch_items.append(
             f"Sample metadata and ffms2 decode cadence disagreed on {canonical['decode_cadence_mismatch_count']}/{source_count} sampled source(s), so cadence warnings need decode-aware interpretation."
+        )
+    if len(canonical["output_frame_rates"]) > 1:
+        watch_items.append(
+            "Canonical sampled outputs landed in mixed frame-rate groups; verify whether batch cadence expectations actually match the sampled decode cadence before a long run."
         )
     if canonical["oversized_delivery_count"] or degraded["oversized_delivery_count"]:
         watch_items.append(

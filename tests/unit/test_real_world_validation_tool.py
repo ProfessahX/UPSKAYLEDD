@@ -249,6 +249,8 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["canonical"]["output_containers"], {"matroska": 1, "mp4": 1})
         self.assertEqual(summary["canonical"]["output_video_codecs"], {"h264": 1, "hevc": 1})
         self.assertEqual(summary["canonical"]["output_resolutions"], {"1440x1080": 2})
+        self.assertEqual(summary["canonical"]["output_frame_rates"], {"23.98 fps": 1, "29.97 fps": 1})
+        self.assertEqual(summary["canonical"]["decode_frame_rates"], {"23.98 fps": 1})
         self.assertEqual(
             summary["media_rollup"]["guidance_messages"],
             {
@@ -258,6 +260,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
         )
         self.assertTrue(any("changed frame rate" in item for item in summary["watch_items"]))
         self.assertTrue(any("decode-aware interpretation" in item for item in summary["watch_items"]))
+        self.assertTrue(any("mixed frame-rate groups" in item for item in summary["watch_items"]))
         self.assertTrue(any("larger than its source clip" in item for item in summary["watch_items"]))
         self.assertTrue(any("dropped subtitle or chapter streams" in item for item in summary["watch_items"]))
 
