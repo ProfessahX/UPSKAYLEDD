@@ -82,5 +82,25 @@ class RuntimeGuidanceBuilder:
                 )
             )
 
+        platform_context = doctor_report.get("platform_context", {})
+        if isinstance(platform_context, dict) and bool(platform_context.get("is_wsl")):
+            has_runtime_issues = any(
+                isinstance(check, dict) and str(check.get("status", "")) in {"missing", "degraded"}
+                for check in doctor_report.get("checks", [])
+            )
+            if has_runtime_issues:
+                context_rule = self.config.runtime_actions.contexts.get("wsl_environment")
+                if context_rule is not None:
+                    actions.append(
+                        RuntimeAction(
+                            action_id="context:wsl_environment",
+                            category=context_rule.category,
+                            title=context_rule.title,
+                            detail=context_rule.missing,
+                            status="context",
+                            priority=context_rule.priority,
+                        )
+                    )
+
         actions.sort(key=lambda item: (-item.priority, item.title))
         return actions[: self.config.runtime_actions.max_actions]

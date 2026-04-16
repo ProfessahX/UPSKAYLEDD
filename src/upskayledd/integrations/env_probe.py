@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -74,6 +75,32 @@ def detect_environment() -> dict[str, ToolStatus]:
         "vsmlrt_trt_rtx": _probe_vs_plugin("trt_rtx"),
         "nvidia": _probe_nvidia(),
         "vulkan": _probe_vulkan(),
+    }
+
+
+def detect_platform_context() -> dict[str, object]:
+    system = platform.system() or ("Windows" if os.name == "nt" else "Linux")
+    release = platform.release() or ""
+    machine = platform.machine() or ""
+    wsl_distro = os.environ.get("WSL_DISTRO_NAME", "").strip()
+    wsl_interop = os.environ.get("WSL_INTEROP", "").strip()
+    proc_version = ""
+    if os.name != "nt":
+        try:
+            proc_version = Path("/proc/version").read_text(encoding="utf-8", errors="ignore").strip()
+        except OSError:
+            proc_version = ""
+    is_wsl = bool(wsl_distro or wsl_interop or ("microsoft" in proc_version.lower()))
+    environment_label = f"{system} (WSL)" if is_wsl else system
+    return {
+        "system": system,
+        "release": release,
+        "machine": machine,
+        "python_executable": sys.executable,
+        "path_style": "windows" if os.name == "nt" else "linux",
+        "is_wsl": is_wsl,
+        "wsl_distro": wsl_distro,
+        "environment_label": environment_label,
     }
 
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-from upskayledd.config import load_app_config
+from upskayledd.config import _normalize_model_dirs, load_app_config
 
 
 class ConfigTests(unittest.TestCase):
@@ -22,6 +23,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.encode_profile_by_id("h264_compatibility_mp4").audio_codec, "aac")
         self.assertIn("mov", config.supported_output_containers())
         self.assertIn("h264_compatibility_mp4", config.conversion_guidance.compatibility_profile_ids)
+        self.assertIn("hevc_balanced_archive", config.delivery_guidance.archive_profile_ids)
+        self.assertIn("hevc_smaller_archive", config.delivery_guidance.smaller_profile_ids)
+        self.assertIn("h264_compatibility_mp4", config.delivery_guidance.compatibility_profile_ids)
+        self.assertIn("wsl_environment", config.runtime_actions.contexts)
         self.assertGreater(config.conversion_guidance.oversized_ratio, 1.0)
         cleanup_mode = config.stage_mode("cleanup", "light_cleanup")
         self.assertIsNotNone(cleanup_mode)
@@ -32,6 +37,25 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.stage_mode("upscale", "faithful_resize").operation, "resize")
         self.assertEqual(config.stage_mode("upscale", "detail_recovery_live_action").model_name, "realSR_BSRGAN_DFO_s64w8_SwinIR_M_x4_PSNR")
         self.assertTrue(any(pack.id == "dpir_cleanup" for pack in config.model_packs.packs))
+
+    def test_normalize_model_dirs_filters_non_native_platform_defaults(self) -> None:
+        raw_dirs = (
+            "runtime/models",
+            "%LOCALAPPDATA%/UPSKAYLEDD/models",
+            "$HOME/.local/share/upskayledd/models",
+        )
+
+        with patch("upskayledd.config.os.name", "nt"):
+            windows_dirs = _normalize_model_dirs(raw_dirs)
+        with patch("upskayledd.config.os.name", "posix"):
+            linux_dirs = _normalize_model_dirs(raw_dirs)
+
+        self.assertIn("runtime/models", windows_dirs)
+        self.assertIn("%LOCALAPPDATA%/UPSKAYLEDD/models", windows_dirs)
+        self.assertNotIn("$HOME/.local/share/upskayledd/models", windows_dirs)
+        self.assertIn("runtime/models", linux_dirs)
+        self.assertIn("$HOME/.local/share/upskayledd/models", linux_dirs)
+        self.assertNotIn("%LOCALAPPDATA%/UPSKAYLEDD/models", linux_dirs)
 
 
 if __name__ == "__main__":

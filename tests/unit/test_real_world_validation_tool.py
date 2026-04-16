@@ -16,6 +16,13 @@ def _load_module():
 
 
 class RealWorldValidationToolTests(unittest.TestCase):
+    def test_normalize_encode_profile_id_handles_missing_values(self) -> None:
+        module = _load_module()
+
+        self.assertIsNone(module.normalize_encode_profile_id(None))
+        self.assertIsNone(module.normalize_encode_profile_id("   "))
+        self.assertEqual(module.normalize_encode_profile_id("hevc_balanced_archive"), "hevc_balanced_archive")
+
     def test_summarize_run_manifest_surfaces_size_warning_state(self) -> None:
         module = _load_module()
         summary = module.summarize_run_manifest(
@@ -42,6 +49,26 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertIn("media_metrics", summary)
         self.assertEqual(summary["media_metrics"]["output"]["container_name"], "mp4")
         self.assertEqual(len(summary["conversion_guidance"]), 1)
+
+    def test_summarize_runtime_context_keeps_platform_warnings_and_actions(self) -> None:
+        module = _load_module()
+        summary = module.summarize_runtime_context(
+            {
+                "platform_summary": "Linux (WSL) · Python 3.12.3",
+                "warnings": ["Canonical restoration stack is incomplete."],
+            },
+            [
+                {
+                    "action_id": "context:wsl_environment",
+                    "title": "Decide on a Linux-side WSL runtime plan",
+                }
+            ],
+        )
+
+        self.assertEqual(summary["platform_summary"], "Linux (WSL) · Python 3.12.3")
+        self.assertEqual(summary["warning_count"], 1)
+        self.assertEqual(summary["action_count"], 1)
+        self.assertEqual(summary["actions"][0]["action_id"], "context:wsl_environment")
 
     def test_file_stats_reports_missing_and_existing_paths(self) -> None:
         module = _load_module()

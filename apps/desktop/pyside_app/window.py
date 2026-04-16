@@ -71,6 +71,10 @@ class IngestPage(QWidget):
         self.runtime_headline = QLabel(self.ui_config.copy.runtime.checking.headline)
         self.runtime_headline.setStyleSheet("font-size: 18px; font-weight: 700;")
         runtime_layout.addWidget(self.runtime_headline)
+        self.runtime_platform_summary = QLabel(self.ui_config.copy.runtime.platform_empty)
+        self.runtime_platform_summary.setWordWrap(True)
+        self.runtime_platform_summary.setStyleSheet("color: #9aa8b7; font-size: 12px;")
+        runtime_layout.addWidget(self.runtime_platform_summary)
         self.runtime_doctor_summary = QLabel(self.ui_config.copy.runtime.checking.doctor_summary)
         self.runtime_doctor_summary.setWordWrap(True)
         runtime_layout.addWidget(self.runtime_doctor_summary)
@@ -236,6 +240,7 @@ class IngestPage(QWidget):
     def apply_runtime_status(self, payload: dict[str, Any] | None) -> None:
         payload = dict(payload or {})
         self.runtime_headline.setText(payload.get("headline", self.ui_config.copy.runtime.checking.headline))
+        self.runtime_platform_summary.setText(payload.get("platform_summary", self.ui_config.copy.runtime.platform_empty))
         self.runtime_doctor_summary.setText(payload.get("doctor_summary", self.ui_config.copy.runtime.checking.doctor_summary))
         self.runtime_model_summary.setText(
             payload.get("model_summary", self.ui_config.copy.runtime.checking.model_summary)
@@ -580,6 +585,31 @@ class SummaryPage(QWidget):
             f"- {stage.label}: {'enabled' if stage.enabled else 'skipped'}"
             for stage in project.manifest.resolved_pipeline_stages
         )
+        delivery_guidance = dict(project.delivery_guidance)
+        selected_messages = [str(item).strip() for item in delivery_guidance.get("selected_messages", []) if str(item).strip()]
+        if selected_messages:
+            recommendation_lines.extend(
+                [
+                    "",
+                    f"{self.ui_config.copy.summary.delivery_guidance_label}:",
+                ]
+            )
+            recommendation_lines.extend(f"- {message}" for message in selected_messages)
+        alternative_profiles = list(delivery_guidance.get("alternative_profiles", []))
+        if alternative_profiles:
+            recommendation_lines.extend(
+                [
+                    "",
+                    f"{self.ui_config.copy.summary.alternative_profiles_label}:",
+                ]
+            )
+            for item in alternative_profiles[:3]:
+                label = str(item.get("label", item.get("id", "Other lane"))).strip() or "Other lane"
+                messages = [str(message).strip() for message in item.get("messages", []) if str(message).strip()]
+                if messages:
+                    recommendation_lines.append(f"- {label}: {messages[0]}")
+                else:
+                    recommendation_lines.append(f"- {label}")
 
         warning_lines = []
         if batch_summary.get("source_count", 0) > 1:
@@ -1279,6 +1309,44 @@ def build_run_summary(payload: dict[str, Any] | None) -> str:
     return "\n".join(lines)
 
 
+def build_media_metrics_snapshot(payload: dict[str, Any] | None) -> dict[str, list[Any]]:
+    if payload is None:
+        return {"rows": [], "guidance": []}
+    encode_settings = dict(payload.get("encode_settings", {}))
+    media_metrics = dict(encode_settings.get("media_metrics", {}))
+    input_metrics = dict(media_metrics.get("input", {}))
+    output_metrics = dict(media_metrics.get("output", {}))
+    if not input_metrics and not output_metrics:
+        return {"rows": [], "guidance": []}
+
+    rows: list[tuple[str, str, str]] = [
+        ("Container", _format_container(input_metrics), _format_container(output_metrics)),
+        ("File size", _format_size(input_metrics.get("size_bytes")), _format_size(output_metrics.get("size_bytes"))),
+        ("Duration", _format_duration(input_metrics.get("duration_seconds")), _format_duration(output_metrics.get("duration_seconds"))),
+        ("Video", _format_video_metrics(dict(input_metrics.get("video", {}))), _format_video_metrics(dict(output_metrics.get("video", {})))),
+        ("Audio", _format_audio_metrics(dict(input_metrics.get("audio", {}))), _format_audio_metrics(dict(output_metrics.get("audio", {})))),
+        ("Subtitles", _format_subtitle_metrics(dict(input_metrics.get("subtitle", {}))), _format_subtitle_metrics(dict(output_metrics.get("subtitle", {})))),
+        (
+            "Chapters",
+            str(int(input_metrics.get("chapter_count", 0) or 0)),
+            str(int(output_metrics.get("chapter_count", 0) or 0)),
+        ),
+    ]
+    guidance = [
+        str(item).strip()
+        for item in encode_settings.get("conversion_guidance", [])
+        if str(item).strip()
+    ]
+    if not guidance:
+        comparison = dict(media_metrics.get("comparison", {}))
+        guidance = [
+            line.removeprefix("- ").strip()
+            for line in _format_media_comparison_lines(comparison)
+            if line.strip()
+        ]
+    return {"rows": rows, "guidance": guidance}
+
+
 def _format_media_metrics_block(label: str, metrics: dict[str, Any]) -> list[str]:
     video = dict(metrics.get("video", {}))
     audio = dict(metrics.get("audio", {}))
@@ -1529,6 +1597,43 @@ class DashboardPage(QWidget):
         run_summary_title.setObjectName("sectionTitle")
         layout.addWidget(run_summary_title)
 
+        metrics_title = QLabel(self.ui_config.copy.dashboard.metrics_title)
+        metrics_title.setObjectName("sectionTitle")
+        layout.addWidget(metrics_title)
+
+        metrics_frame = QFrame()
+        metrics_frame.setObjectName("panelFrame")
+        metrics_layout = QVBoxLayout(metrics_frame)
+        metrics_layout.setContentsMargins(14, 14, 14, 14)
+        metrics_layout.setSpacing(10)
+
+        self.metrics_table = QTableWidget(0, 3)
+        self.metrics_table.setHorizontalHeaderLabels(
+            [
+                self.ui_config.copy.dashboard.metrics_metric_label,
+                self.ui_config.copy.dashboard.metrics_before_label,
+                self.ui_config.copy.dashboard.metrics_after_label,
+            ]
+        )
+        self.metrics_table.verticalHeader().setVisible(False)
+        self.metrics_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.metrics_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.metrics_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.metrics_table.setMinimumHeight(200)
+        self.metrics_table.horizontalHeader().setStretchLastSection(True)
+        metrics_layout.addWidget(self.metrics_table)
+
+        guidance_title = QLabel(self.ui_config.copy.dashboard.metrics_guidance_title)
+        guidance_title.setObjectName("sectionTitle")
+        metrics_layout.addWidget(guidance_title)
+
+        self.metrics_guidance_view = QTextEdit()
+        self.metrics_guidance_view.setReadOnly(True)
+        self.metrics_guidance_view.setMinimumHeight(88)
+        self.metrics_guidance_view.setPlainText(self.ui_config.copy.dashboard.metrics_empty)
+        metrics_layout.addWidget(self.metrics_guidance_view)
+        layout.addWidget(metrics_frame)
+
         self.run_summary_view = QTextEdit()
         self.run_summary_view.setReadOnly(True)
         self.run_summary_view.setMinimumHeight(140)
@@ -1604,6 +1709,7 @@ class DashboardPage(QWidget):
 
     def apply_run_manifest(self, payload: dict[str, Any] | None) -> None:
         if payload is None:
+            self._apply_metrics_snapshot(None)
             self.run_summary_view.setPlainText(self.ui_config.copy.dashboard.run_summary_empty)
             self.manifest_view.setPlainText(self.ui_config.copy.dashboard.manifest_empty)
             self.selected_job_label.setText(self.ui_config.copy.dashboard.selection_empty)
@@ -1612,9 +1718,27 @@ class DashboardPage(QWidget):
         job_id = self.controller.session.selected_job_id
         execution_mode = payload.get("encode_settings", {}).get("execution_mode", "not run yet")
         self.selected_job_label.setText(f"Selected job {job_id[:8]} · {execution_mode}")
+        self._apply_metrics_snapshot(payload)
         self.run_summary_view.setPlainText(build_run_summary(payload))
         self.manifest_view.setPlainText(json.dumps(payload, indent=2, sort_keys=True))
         self._load_review_media(job_id, payload)
+
+    def _apply_metrics_snapshot(self, payload: dict[str, Any] | None) -> None:
+        snapshot = build_media_metrics_snapshot(payload)
+        rows = list(snapshot.get("rows", []))
+        guidance = [str(item).strip() for item in snapshot.get("guidance", []) if str(item).strip()]
+        self.metrics_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            metric, before, after = row
+            for column, value in enumerate((metric, before, after)):
+                self.metrics_table.setItem(row_index, column, QTableWidgetItem(value))
+        if not rows:
+            self.metrics_guidance_view.setPlainText(self.ui_config.copy.dashboard.metrics_empty)
+            return
+        if guidance:
+            self.metrics_guidance_view.setPlainText("\n".join(f"- {line}" for line in guidance))
+        else:
+            self.metrics_guidance_view.setPlainText(self.ui_config.copy.dashboard.metrics_guidance_empty)
 
     def _job_activated(self, row: int, _: int) -> None:
         item = self.jobs_table.item(row, 0)

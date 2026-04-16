@@ -10,7 +10,81 @@ if str(DESKTOP_APPS) not in sys.path:
     sys.path.insert(0, str(DESKTOP_APPS))
 
 from pyside_app.ui_config import load_ui_config
-from pyside_app.window import build_dashboard_focus_text, build_run_summary
+from pyside_app.window import build_dashboard_focus_text, build_media_metrics_snapshot, build_run_summary
+
+
+def sample_run_payload() -> dict[str, object]:
+    return {
+        "actual_backend": {"backend_id": "vulkan_ml"},
+        "output_files": [str(ROOT / "runtime" / "output" / "episode01.mkv")],
+        "encode_settings": {
+            "execution_mode": "vapoursynth_canonical",
+            "input_size_bytes": 2000,
+            "output_size_bytes": 1500,
+            "size_ratio": 0.75,
+            "media_metrics": {
+                "input": {
+                    "container_name": "matroska",
+                    "duration_seconds": 10.0,
+                    "size_bytes": 2000,
+                    "overall_bitrate_bps": 5000000,
+                    "chapter_count": 2,
+                    "video": {
+                        "codec_name": "mpeg2video",
+                        "width": 720,
+                        "height": 480,
+                        "display_aspect_ratio": "4:3",
+                        "avg_frame_rate_fps": 29.97,
+                        "field_order": "tt",
+                        "bit_rate_bps": 4000000,
+                        "pixel_format": "yuv420p",
+                    },
+                    "audio": {"stream_count": 2, "codec_names": ["ac3"], "languages": ["eng"], "max_channels": 6},
+                    "subtitle": {"stream_count": 1, "codec_names": ["dvd_subtitle"], "languages": ["eng"]},
+                },
+                "output": {
+                    "container_name": "matroska",
+                    "duration_seconds": 10.0,
+                    "size_bytes": 1500,
+                    "overall_bitrate_bps": 2500000,
+                    "chapter_count": 2,
+                    "video": {
+                        "codec_name": "hevc",
+                        "width": 1440,
+                        "height": 1080,
+                        "display_aspect_ratio": "4:3",
+                        "avg_frame_rate_fps": 23.98,
+                        "field_order": "progressive",
+                        "bit_rate_bps": 2000000,
+                        "pixel_format": "yuv420p10le",
+                    },
+                    "audio": {"stream_count": 2, "codec_names": ["aac"], "languages": ["eng"], "max_channels": 2},
+                    "subtitle": {"stream_count": 1, "codec_names": ["mov_text"], "languages": ["eng"]},
+                },
+                "comparison": {
+                    "size_ratio": 0.75,
+                    "overall_bitrate_ratio": 0.5,
+                    "resolution_scale": 4.5,
+                    "container_changed": False,
+                    "video_codec_changed": True,
+                    "audio_codec_changed": True,
+                    "subtitle_codec_changed": True,
+                    "subtitle_stream_delta": 0,
+                    "chapter_delta": 0,
+                },
+            },
+            "conversion_guidance": [
+                "Output landed smaller than the source sample with the current delivery settings.",
+                "Audio changed from ac3 to aac; this usually improves compatibility rather than preserving bit-perfect audio.",
+            ],
+        },
+        "stream_outcomes": [
+            {"stream_type": "audio", "action": "preserve", "reason": "ffmpeg_copy"},
+            {"stream_type": "subtitle", "action": "drop", "reason": "ffmpeg_subtitle_copy_failed"},
+        ],
+        "fallbacks": ["subtitle_copy_failed_retry_without_subtitles"],
+        "warnings": ["Subtitle stream could not be preserved on the first pass."],
+    }
 
 
 class DesktopWindowHelperTests(unittest.TestCase):
@@ -42,79 +116,7 @@ class DesktopWindowHelperTests(unittest.TestCase):
         self.assertIn("episode08.mkv completed and is ready for result review.", completed_focus)
 
     def test_build_run_summary_surfaces_backend_streams_and_fallbacks(self) -> None:
-        summary = build_run_summary(
-            {
-                "actual_backend": {"backend_id": "vulkan_ml"},
-                "output_files": [str(ROOT / "runtime" / "output" / "episode01.mkv")],
-                "encode_settings": {
-                    "execution_mode": "vapoursynth_canonical",
-                    "input_size_bytes": 2000,
-                    "output_size_bytes": 1500,
-                    "size_ratio": 0.75,
-                    "media_metrics": {
-                        "input": {
-                            "container_name": "matroska",
-                            "duration_seconds": 10.0,
-                            "size_bytes": 2000,
-                            "overall_bitrate_bps": 5000000,
-                            "chapter_count": 2,
-                            "video": {
-                                "codec_name": "mpeg2video",
-                                "width": 720,
-                                "height": 480,
-                                "display_aspect_ratio": "4:3",
-                                "avg_frame_rate_fps": 29.97,
-                                "field_order": "tt",
-                                "bit_rate_bps": 4000000,
-                                "pixel_format": "yuv420p",
-                            },
-                            "audio": {"stream_count": 2, "codec_names": ["ac3"], "languages": ["eng"], "max_channels": 6},
-                            "subtitle": {"stream_count": 1, "codec_names": ["dvd_subtitle"], "languages": ["eng"]},
-                        },
-                        "output": {
-                            "container_name": "matroska",
-                            "duration_seconds": 10.0,
-                            "size_bytes": 1500,
-                            "overall_bitrate_bps": 2500000,
-                            "chapter_count": 2,
-                            "video": {
-                                "codec_name": "hevc",
-                                "width": 1440,
-                                "height": 1080,
-                                "display_aspect_ratio": "4:3",
-                                "avg_frame_rate_fps": 23.98,
-                                "field_order": "progressive",
-                                "bit_rate_bps": 2000000,
-                                "pixel_format": "yuv420p10le",
-                            },
-                            "audio": {"stream_count": 2, "codec_names": ["aac"], "languages": ["eng"], "max_channels": 2},
-                            "subtitle": {"stream_count": 1, "codec_names": ["mov_text"], "languages": ["eng"]},
-                        },
-                        "comparison": {
-                            "size_ratio": 0.75,
-                            "overall_bitrate_ratio": 0.5,
-                            "resolution_scale": 4.5,
-                            "container_changed": False,
-                            "video_codec_changed": True,
-                            "audio_codec_changed": True,
-                            "subtitle_codec_changed": True,
-                            "subtitle_stream_delta": 0,
-                            "chapter_delta": 0,
-                        },
-                    },
-                    "conversion_guidance": [
-                        "Output landed smaller than the source sample with the current delivery settings.",
-                        "Audio changed from ac3 to aac; this usually improves compatibility rather than preserving bit-perfect audio.",
-                    ],
-                },
-                "stream_outcomes": [
-                    {"stream_type": "audio", "action": "preserve", "reason": "ffmpeg_copy"},
-                    {"stream_type": "subtitle", "action": "drop", "reason": "ffmpeg_subtitle_copy_failed"},
-                ],
-                "fallbacks": ["subtitle_copy_failed_retry_without_subtitles"],
-                "warnings": ["Subtitle stream could not be preserved on the first pass."],
-            }
-        )
+        summary = build_run_summary(sample_run_payload())
 
         self.assertIn("Execution mode: vapoursynth_canonical", summary)
         self.assertIn("Backend: vulkan_ml", summary)
@@ -130,6 +132,20 @@ class DesktopWindowHelperTests(unittest.TestCase):
         self.assertIn("subtitle: drop", summary)
         self.assertIn("subtitle copy failed retry without subtitles", summary)
         self.assertIn("Subtitle stream could not be preserved", summary)
+
+    def test_build_media_metrics_snapshot_surfaces_before_after_rows_and_guidance(self) -> None:
+        snapshot = build_media_metrics_snapshot(sample_run_payload())
+
+        rows = snapshot["rows"]
+        self.assertTrue(rows)
+        self.assertIn(("Container", "MATROSKA", "MATROSKA"), rows)
+        self.assertTrue(any(row[0] == "File size" and "2,000 bytes" in row[1] and "1,500 bytes" in row[2] for row in rows))
+        self.assertTrue(any(row[0] == "Video" and "mpeg2video" in row[1] and "hevc" in row[2] for row in rows))
+        self.assertTrue(any(row[0] == "Subtitles" and "dvd_subtitle" in row[1] and "mov_text" in row[2] for row in rows))
+        self.assertIn(
+            "Output landed smaller than the source sample with the current delivery settings.",
+            snapshot["guidance"],
+        )
 
 
 if __name__ == "__main__":

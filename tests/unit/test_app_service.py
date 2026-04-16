@@ -48,6 +48,42 @@ class AppServiceTests(unittest.TestCase):
             self.assertIn("hevc_smaller_archive", profile_ids)
             self.assertIn("h264_compatibility_mp4", profile_ids)
 
+    def test_recommend_target_includes_delivery_guidance(self) -> None:
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("ffmpeg not available")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_dir = make_temp_config(temp_path)
+            service = AppService(str(config_dir))
+            source = temp_path / "sample.mp4"
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=720x480:d=1",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(source),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            payload = service.recommend_target(str(source))
+
+            guidance = payload["delivery_guidance"]
+            self.assertEqual(guidance["selected_profile_id"], "hevc_balanced_archive")
+            self.assertTrue(guidance["selected_messages"])
+            alternative_ids = {item["id"] for item in guidance["alternative_profiles"]}
+            self.assertIn("hevc_smaller_archive", alternative_ids)
+            self.assertIn("h264_compatibility_mp4", alternative_ids)
+
     def test_session_state_round_trips(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config_dir = make_temp_config(Path(temp_dir))
@@ -208,7 +244,8 @@ class AppServiceTests(unittest.TestCase):
                     "checks": [
                         {"name": "ffmpeg", "status": "missing", "detail": "not found"},
                         {"name": "output_root", "status": "missing", "detail": "not writable"},
-                    ]
+                    ],
+                    "platform_context": {"is_wsl": True},
                 },
                 model_pack_payload={
                     "packs": [
@@ -223,8 +260,21 @@ class AppServiceTests(unittest.TestCase):
             )
 
             self.assertEqual(actions[0]["action_id"], "check:ffmpeg")
+            self.assertTrue(any(action["action_id"] == "context:wsl_environment" for action in actions))
             self.assertTrue(any(action["action_id"] == "pack:dpir_cleanup" for action in actions))
             self.assertTrue(any("writable" in action["detail"].lower() for action in actions))
+
+    def test_doctor_report_includes_platform_context_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_dir = make_temp_config(Path(temp_dir))
+            service = AppService(str(config_dir))
+
+            payload = service.doctor_report()
+
+            self.assertIn("platform_context", payload)
+            self.assertIn("platform_summary", payload)
+            self.assertTrue(str(payload["platform_summary"]).strip())
+            self.assertIn("environment_label", payload["platform_context"])
 
     def test_runtime_locations_resolve_configured_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -246,6 +296,63 @@ class AppServiceTests(unittest.TestCase):
             )
             self.assertEqual(normalize_path(location_lookup["app_state_dir"]["path"]), normalize_path(temp_path))
             self.assertIn("primary_model_dir", location_lookup)
+
+    def test_compare_media_files_returns_normalized_metrics_and_guidance(self) -> None:
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("ffmpeg not available")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_dir = make_temp_config(temp_path)
+            service = AppService(str(config_dir))
+            source = temp_path / "source.mkv"
+            output = temp_path / "output.mp4"
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=320x240:d=0.6",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(source),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-i",
+                    str(source),
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    "18",
+                    "-c:a",
+                    "aac",
+                    str(output),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            payload = service.compare_media_files(
+                source,
+                output,
+                encode_profile_id="h264_compatibility_mp4",
+            )
+
+            self.assertEqual(payload["input_metrics"]["container_name"], "matroska")
+            self.assertEqual(payload["output_metrics"]["container_name"], "mov")
+            guidance = "\n".join(payload["comparison"]["guidance"])
+            self.assertIn("Compatibility delivery favors easier playback", guidance)
 
     def test_support_bundle_redacts_paths_by_default_and_includes_selected_job_manifest(self) -> None:
         ffmpeg = shutil.which("ffmpeg")

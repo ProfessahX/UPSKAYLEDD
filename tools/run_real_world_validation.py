@@ -23,6 +23,13 @@ def _replace_default_path(content: str, key: str, replacement: Path) -> str:
     return content.replace(key, replacement.as_posix())
 
 
+def normalize_encode_profile_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def create_temp_config(temp_root: Path) -> Path:
     config_dir = temp_root / "config"
     shutil.copytree(ROOT / "config", config_dir)
@@ -148,6 +155,21 @@ def summarize_run_manifest(manifest: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def summarize_runtime_context(
+    doctor_report: dict[str, Any] | None,
+    setup_actions: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    payload = dict(doctor_report or {})
+    actions = list(setup_actions or [])
+    return {
+        "platform_summary": str(payload.get("platform_summary", "")).strip(),
+        "warning_count": len(payload.get("warnings", [])),
+        "warnings": list(payload.get("warnings", [])),
+        "action_count": len(actions),
+        "actions": actions,
+    }
+
+
 def run_validation_for_source(
     service: AppService,
     source: Path,
@@ -163,6 +185,7 @@ def run_validation_for_source(
     recommendation = service.recommend_target(str(source), output_policy_overrides=output_overrides)
     backend = dict(recommendation["backend_selection"])
     report = dict(recommendation["inspection_reports"][0])
+    delivery_guidance = dict(recommendation.get("delivery_guidance", {}))
 
     sample_dir = working_root / "samples"
     sample_dir.mkdir(parents=True, exist_ok=True)
@@ -237,6 +260,7 @@ def run_validation_for_source(
             "audio_codec": manifest.output_policy.get("audio_codec"),
             "subtitle_codec": manifest.output_policy.get("subtitle_codec"),
         },
+        "delivery_guidance": delivery_guidance,
         "inspection": {
             "detected_source_class": report.get("detected_source_class"),
             "recommended_profile_id": report.get("recommended_profile_id"),
@@ -285,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
         temp_root = Path(temp_dir)
         config_dir = create_temp_config(temp_root)
         service = AppService(str(config_dir))
+        doctor_report = service.doctor_report()
+        setup_actions = service.runtime_action_plan(doctor_report=doctor_report)
         sources = select_sources(service, target, max(1, args.max_files))
         if not sources:
             raise SystemExit(f"No supported video files found under {target}")
@@ -294,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
                 service,
                 source,
                 temp_root,
-                encode_profile_id=str(args.encode_profile).strip() or None,
+                encode_profile_id=normalize_encode_profile_id(args.encode_profile),
                 sample_seconds=max(1.0, float(args.sample_seconds)),
                 sample_start_seconds=max(0.0, float(args.sample_start)),
                 preview_seconds=max(0.5, float(args.preview_seconds)),
@@ -307,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "target": str(target),
             "source_count": len(results),
+            "runtime_context": summarize_runtime_context(doctor_report, setup_actions),
             "results": results,
         }
         output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

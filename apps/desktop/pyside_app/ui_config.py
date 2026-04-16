@@ -113,6 +113,7 @@ class RuntimeStatusCopyConfig:
 @dataclass(slots=True, frozen=True)
 class RuntimeCopyConfig:
     title: str
+    platform_empty: str
     focus_title: str
     focus_empty: str
     packs_title: str
@@ -147,6 +148,8 @@ class SummaryCopyConfig:
     title: str
     intro: str
     placeholder: str
+    delivery_guidance_label: str
+    alternative_profiles_label: str
     batch_review_title: str
     batch_review_idle: str
     batch_review_aligned: str
@@ -200,6 +203,13 @@ class DashboardCopyConfig:
     last_completed_empty: str
     last_completed_template: str
     selection_empty: str
+    metrics_title: str
+    metrics_empty: str
+    metrics_guidance_title: str
+    metrics_guidance_empty: str
+    metrics_metric_label: str
+    metrics_before_label: str
+    metrics_after_label: str
     run_summary_title: str
     run_summary_empty: str
     manifest_empty: str
@@ -316,6 +326,7 @@ def _parse_copy_config(path: Path) -> DesktopCopyConfig:
         global_text=GlobalCopyConfig(**payload["global"]),
         runtime=RuntimeCopyConfig(
             title=runtime_payload["title"],
+            platform_empty=runtime_payload["platform_empty"],
             focus_title=runtime_payload["focus_title"],
             focus_empty=runtime_payload["focus_empty"],
             packs_title=runtime_payload["packs_title"],

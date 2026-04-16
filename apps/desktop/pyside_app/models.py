@@ -73,6 +73,7 @@ class CurrentProject:
     backend_selection: dict[str, Any]
     manifest: ProjectManifest
     batch_summary: dict[str, Any] = field(default_factory=dict)
+    delivery_guidance: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "CurrentProject":
@@ -81,6 +82,7 @@ class CurrentProject:
             backend_selection=dict(payload["backend_selection"]),
             manifest=ProjectManifest.from_dict(payload["project_manifest"]),
             batch_summary=dict(payload.get("batch_summary", {})),
+            delivery_guidance=dict(payload.get("delivery_guidance", {})),
         )
 
     @property

@@ -95,8 +95,15 @@ def command_list_encode_profiles(args: argparse.Namespace) -> int:
 
 def command_setup_plan(args: argparse.Namespace) -> int:
     service = AppService(args.config_dir)
-    payload = {"actions": service.runtime_action_plan()}
+    doctor_report = service.doctor_report()
+    payload = {
+        "platform_summary": doctor_report.get("platform_summary", ""),
+        "actions": service.runtime_action_plan(doctor_report=doctor_report),
+    }
     _write_optional_json(args.json_output, payload)
+    platform_summary = str(payload.get("platform_summary", "")).strip()
+    if platform_summary:
+        print(f"Runtime context: {platform_summary}")
     if not payload["actions"]:
         print("No immediate setup actions. The current runtime looks ready for normal use.")
         return 0
@@ -112,6 +119,32 @@ def command_paths(args: argparse.Namespace) -> int:
     for location in payload["locations"]:
         state = "ready" if location.get("exists") else "planned"
         print(f"{location['location_id']}: {location['path']} ({state})")
+    return 0
+
+
+def command_compare_media(args: argparse.Namespace) -> int:
+    payload = AppService(args.config_dir).compare_media_files(
+        args.input_path,
+        args.output_path,
+        encode_profile_id=args.encode_profile,
+        preserve_chapters=not args.drop_chapters,
+    )
+    _write_optional_json(args.json_output, payload)
+    print(f"Input: {payload['input_path']}")
+    print(f"Output: {payload['output_path']}")
+    comparison = dict(payload.get("comparison", {}))
+    if comparison:
+        size_ratio = comparison.get("size_ratio")
+        resolution_scale = comparison.get("resolution_scale")
+        if size_ratio not in (None, ""):
+            print(f"Size ratio: {float(size_ratio):.2f}x")
+        if resolution_scale not in (None, ""):
+            print(f"Resolution scale: {float(resolution_scale):.2f}x")
+        guidance = list(comparison.get("guidance", []))
+        if guidance:
+            print("Guidance:")
+            for item in guidance:
+                print(f"- {item}")
     return 0
 
 
@@ -146,6 +179,7 @@ def command_recommend(args: argparse.Namespace) -> int:
     reports = payload["inspection_reports"]
     manifest = ProjectManifest.from_dict(payload["project_manifest"])
     backend = payload["backend_selection"]
+    delivery_guidance = dict(payload.get("delivery_guidance", {}))
     if not reports:
         print("No supported media files found.")
         return 1
@@ -158,6 +192,11 @@ def command_recommend(args: argparse.Namespace) -> int:
         print("Warnings:")
         for warning in manifest.warnings:
             print(f"- {warning}")
+    selected_messages = list(delivery_guidance.get("selected_messages", []))
+    if selected_messages:
+        print("Delivery guidance:")
+        for message in selected_messages:
+            print(f"- {message}")
     print(f"Sources: {len(manifest.source_files)}")
     return 0
 
@@ -297,6 +336,17 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_paths = subparsers.add_parser("paths", help="Show the runtime/output/support/model locations this install will use.")
     runtime_paths.add_argument("--json-output", help="Optional path to write resolved runtime locations.")
     runtime_paths.set_defaults(func=command_paths)
+
+    compare_media = subparsers.add_parser(
+        "compare-media",
+        help="Compare two media files and emit normalized before/after metrics plus plain-language guidance.",
+    )
+    compare_media.add_argument("input_path", help="Source or before file.")
+    compare_media.add_argument("output_path", help="Output or after file.")
+    compare_media.add_argument("--encode-profile", help="Optional delivery profile id to guide compatibility/archive messaging.")
+    compare_media.add_argument("--drop-chapters", action="store_true", help="Do not warn about chapter loss in the comparison guidance.")
+    compare_media.add_argument("--json-output", help="Optional path to write the comparison payload.")
+    compare_media.set_defaults(func=command_compare_media)
 
     install_model_pack = subparsers.add_parser("install-model-pack", help="Download and extract a curated model pack.")
     install_model_pack.add_argument("pack_id", help="Model pack id or 'recommended'.")

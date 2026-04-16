@@ -29,7 +29,9 @@ Selected shell:
 - the selected shell now also exposes support-bundle export so runtime/package troubleshooting stays inside the product instead of becoming a manual support checklist.
 - the selected shell now also surfaces a calm guided next-steps list so setup friction turns into clear actions instead of raw diagnostics.
 - the ingest/runtime surface now also exposes direct open-folder actions for the key runtime paths users actually care about.
+- the shared doctor/setup surface now also carries runtime-platform context, and Linux-side WSL runs can emit a platform-specific setup action instead of pretending they are the same thing as the host Windows runtime.
 - the summary screen now includes a batch-review surface so large folder ingests can spotlight outlier episodes before the workspace/queue flow starts.
+- the summary screen now also surfaces plain-language delivery guidance for the selected lane plus concise alternate-lane notes before the user commits to the workspace or a run.
 - the workspace now carries source-specific batch context so users know when they are previewing a representative episode vs. an outlier.
 - the dashboard now summarizes run outcomes in plain language before the raw manifest so users can verify execution mode and stream preservation quickly.
 - the dashboard now also exposes a calm batch-overview/focus layer so users can read overall progress and the current attention point without parsing the job table first.

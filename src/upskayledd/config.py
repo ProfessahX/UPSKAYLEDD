@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,7 @@ class RuntimeActionConfig:
     max_actions: int
     checks: dict[str, RuntimeActionRule]
     packs: dict[str, RuntimeActionRule]
+    contexts: dict[str, RuntimeActionRule]
 
 
 @dataclass(slots=True, frozen=True)
@@ -187,6 +189,14 @@ class ConversionGuidanceConfig:
 
 
 @dataclass(slots=True, frozen=True)
+class DeliveryGuidanceConfig:
+    archive_profile_ids: tuple[str, ...]
+    smaller_profile_ids: tuple[str, ...]
+    compatibility_profile_ids: tuple[str, ...]
+    messages: dict[str, str]
+
+
+@dataclass(slots=True, frozen=True)
 class AppConfig:
     config_dir: Path
     app: AppSettings
@@ -200,6 +210,7 @@ class AppConfig:
     profiles: tuple[ProfileDefinition, ...]
     encode: EncodeProfileConfig
     conversion_guidance: ConversionGuidanceConfig
+    delivery_guidance: DeliveryGuidanceConfig
     model_registry: ModelRegistryConfig
     model_packs: ModelPackConfig
     fallback_filters: FallbackFilterConfig
@@ -337,6 +348,21 @@ def _load_conversion_guidance(config_dir: Path) -> ConversionGuidanceConfig:
     )
 
 
+def _load_delivery_guidance(config_dir: Path) -> DeliveryGuidanceConfig:
+    payload = _read_toml(config_dir / "delivery_guidance.toml")
+    profiles = payload.get("profiles", {})
+    messages = {
+        str(key): str(value)
+        for key, value in payload.get("messages", {}).items()
+    }
+    return DeliveryGuidanceConfig(
+        archive_profile_ids=tuple(str(item) for item in profiles.get("archive_ids", [])),
+        smaller_profile_ids=tuple(str(item) for item in profiles.get("smaller_ids", [])),
+        compatibility_profile_ids=tuple(str(item) for item in profiles.get("compatibility_ids", [])),
+        messages=messages,
+    )
+
+
 def _load_stage_presets(config_dir: Path) -> StagePresetConfig:
     payload = _read_toml(config_dir / "stage_presets.toml")
     stages: dict[str, dict[str, StageModeDefinition]] = {}
@@ -378,7 +404,27 @@ def _load_runtime_actions(config_dir: Path) -> RuntimeActionConfig:
         max_actions=int(runtime_payload.get("max_actions", 5)),
         checks=build_rules("checks"),
         packs=build_rules("packs"),
+        contexts=build_rules("contexts"),
     )
+
+
+def _normalize_model_dirs(raw_dirs: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for raw_dir in raw_dirs:
+        candidate = str(raw_dir).strip()
+        if not candidate:
+            continue
+        if candidate.startswith("%LOCALAPPDATA%") and os.name != "nt":
+            continue
+        if candidate.startswith("$HOME") and os.name == "nt":
+            continue
+        if candidate.startswith("~") and os.name == "nt":
+            continue
+        if candidate.startswith("$XDG_DATA_HOME") and os.name == "nt":
+            continue
+        if candidate not in normalized:
+            normalized.append(candidate)
+    return tuple(normalized)
 
 
 def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
@@ -444,11 +490,12 @@ def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
         ),
         runtime_actions=_load_runtime_actions(resolved_config_dir),
         paths=PathSettings(
-            model_dirs=tuple(defaults["paths"]["model_dirs"])
+            model_dirs=_normalize_model_dirs(defaults["paths"]["model_dirs"])
         ),
         profiles=_load_profiles(resolved_config_dir),
         encode=_load_encode_profiles(resolved_config_dir, default_encode_profile_id),
         conversion_guidance=_load_conversion_guidance(resolved_config_dir),
+        delivery_guidance=_load_delivery_guidance(resolved_config_dir),
         model_registry=_load_model_registry(resolved_config_dir),
         model_packs=_load_model_packs(resolved_config_dir),
         fallback_filters=FallbackFilterConfig(
