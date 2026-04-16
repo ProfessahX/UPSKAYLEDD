@@ -646,7 +646,12 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             sample_clip_cadence = dict(item.get("sample_clip_cadence", {}) or {})
             sample_probe_fps = _safe_float(sample_clip_cadence.get("probe_frame_rate_fps"))
             sample_decode_fps = _safe_float(sample_clip_cadence.get("decode_frame_rate_fps"))
-            if sample_probe_fps is not None and sample_decode_fps is not None and abs(sample_probe_fps - sample_decode_fps) >= 0.5:
+            if (
+                key == "canonical_run"
+                and sample_probe_fps is not None
+                and sample_decode_fps is not None
+                and abs(sample_probe_fps - sample_decode_fps) >= 0.5
+            ):
                 decode_cadence_mismatch_count += 1
             if input_fps is not None and output_fps is not None and abs(input_fps - output_fps) >= 0.5:
                 cadence_change_count += 1

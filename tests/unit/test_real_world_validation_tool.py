@@ -239,6 +239,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["canonical"]["completed_runs"], 2)
         self.assertEqual(summary["canonical"]["cadence_change_count"], 1)
         self.assertEqual(summary["canonical"]["decode_cadence_mismatch_count"], 1)
+        self.assertEqual(summary["degraded"]["decode_cadence_mismatch_count"], 0)
         self.assertEqual(summary["canonical"]["oversized_delivery_count"], 1)
         self.assertEqual(summary["canonical"]["subtitle_change_count"], 1)
         self.assertEqual(summary["canonical"]["stream_loss_count"], 1)
