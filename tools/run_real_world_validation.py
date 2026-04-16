@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from upskayledd.app_service import AppService
-from upskayledd.models import ComparisonMode, FidelityMode, ProjectManifest
+from upskayledd.models import ComparisonMode, FidelityMode, InspectionReport, ProjectManifest
 
 
 def _replace_default_path(content: str, key: str, replacement: Path) -> str:
@@ -28,6 +29,184 @@ def normalize_encode_profile_id(value: str | None) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _safe_float(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+
+def _count_map(values: list[str]) -> dict[str, int]:
+    counter = Counter(value for value in values if str(value).strip())
+    return dict(sorted(counter.items(), key=lambda item: (-item[1], item[0])))
+
+
+def _format_size(value: object) -> str:
+    size_bytes = _safe_int(value)
+    if size_bytes is None:
+        return "unknown size"
+    if size_bytes >= 1_000_000_000:
+        return f"{size_bytes / 1_000_000_000:.2f} GB"
+    if size_bytes >= 1_000_000:
+        return f"{size_bytes / 1_000_000:.2f} MB"
+    if size_bytes >= 1_000:
+        return f"{size_bytes / 1_000:.1f} KB"
+    return f"{size_bytes} bytes"
+
+
+def _format_bitrate(value: object) -> str:
+    bitrate = _safe_int(value)
+    if bitrate is None:
+        return "unknown bitrate"
+    if bitrate >= 1_000_000:
+        return f"{bitrate / 1_000_000:.2f} Mbps"
+    return f"{bitrate / 1_000:.0f} kbps"
+
+
+def _format_duration(value: object) -> str:
+    duration = _safe_float(value)
+    if duration is None:
+        return "unknown duration"
+    minutes, seconds = divmod(duration, 60.0)
+    if minutes >= 1.0:
+        return f"{int(minutes)}m {seconds:04.1f}s"
+    return f"{seconds:.2f}s"
+
+
+def _format_video_metrics(video: dict[str, Any]) -> str:
+    codec = str(video.get("codec_name") or "unknown codec")
+    width = _safe_int(video.get("width"))
+    height = _safe_int(video.get("height"))
+    resolution = f"{width}x{height}" if width and height else "unknown resolution"
+    dar = str(video.get("display_aspect_ratio") or "").strip()
+    fps = _safe_float(video.get("avg_frame_rate_fps"))
+    fps_label = f"{fps:.2f} fps" if fps is not None else "unknown fps"
+    field_order = str(video.get("field_order") or "unknown").replace("_", " ")
+    pixel_format = str(video.get("pixel_format") or "").strip()
+    details = [codec, resolution + (f" ({dar})" if dar else ""), fps_label, field_order, _format_bitrate(video.get("bit_rate_bps"))]
+    if pixel_format:
+        details.append(pixel_format)
+    return " · ".join(details)
+
+
+def _format_audio_metrics(audio: dict[str, Any]) -> str:
+    codecs = ", ".join(audio.get("codec_names", [])) or "unknown audio"
+    stream_count = int(audio.get("stream_count", 0) or 0)
+    max_channels = _safe_int(audio.get("max_channels")) or 0
+    details = [f"{stream_count} stream(s)", codecs]
+    if max_channels:
+        details.append(f"up to {max_channels} ch")
+    languages = ", ".join(audio.get("languages", []))
+    if languages:
+        details.append(languages)
+    return " · ".join(details)
+
+
+def _format_subtitle_metrics(subtitle: dict[str, Any]) -> str:
+    codecs = ", ".join(subtitle.get("codec_names", [])) or "no subtitle codec data"
+    stream_count = int(subtitle.get("stream_count", 0) or 0)
+    details = [f"{stream_count} stream(s)", codecs]
+    languages = ", ".join(subtitle.get("languages", []))
+    if languages:
+        details.append(languages)
+    return " · ".join(details)
+
+
+def _format_comparison_highlights(comparison: dict[str, Any]) -> list[str]:
+    if not comparison:
+        return []
+    lines: list[str] = []
+    size_ratio = _safe_float(comparison.get("size_ratio"))
+    bitrate_ratio = _safe_float(comparison.get("overall_bitrate_ratio"))
+    resolution_scale = _safe_float(comparison.get("resolution_scale"))
+    if size_ratio is not None:
+        lines.append(f"Size ratio: {size_ratio:.2f}x")
+    if bitrate_ratio is not None:
+        lines.append(f"Overall bitrate ratio: {bitrate_ratio:.2f}x")
+    if resolution_scale is not None:
+        lines.append(f"Resolution scale: {resolution_scale:.2f}x")
+    if comparison.get("container_changed"):
+        lines.append("Container changed during delivery.")
+    if comparison.get("video_codec_changed"):
+        lines.append("Video codec changed during delivery.")
+    if comparison.get("audio_codec_changed"):
+        lines.append("Audio codec changed during delivery.")
+    if comparison.get("subtitle_codec_changed"):
+        lines.append("Subtitle codec changed during delivery.")
+    subtitle_stream_delta = _safe_int(comparison.get("subtitle_stream_delta"))
+    if subtitle_stream_delta not in (None, 0):
+        lines.append(f"Subtitle stream delta: {subtitle_stream_delta:+d}")
+    chapter_delta = _safe_int(comparison.get("chapter_delta"))
+    if chapter_delta not in (None, 0):
+        lines.append(f"Chapter delta: {chapter_delta:+d}")
+    return lines
+
+
+def _metric_rollup_bucket(
+    metrics: dict[str, Any],
+    *,
+    containers: list[str],
+    codecs: list[str],
+    resolutions: list[str],
+) -> None:
+    container_name = str(metrics.get("container_name") or "").strip().lower()
+    if container_name:
+        containers.append(container_name)
+    video = dict(metrics.get("video", {}))
+    codec_name = str(video.get("codec_name") or "").strip().lower()
+    if codec_name:
+        codecs.append(codec_name)
+    width = _safe_int(video.get("width"))
+    height = _safe_int(video.get("height"))
+    if width and height:
+        resolutions.append(f"{width}x{height}")
+
+
+def build_metric_overview(media_metrics: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(media_metrics or {})
+    input_metrics = dict(payload.get("input", {}))
+    output_metrics = dict(payload.get("output", {}))
+    comparison = dict(payload.get("comparison", {}))
+    return {
+        "input": {
+            "container": str(input_metrics.get("container_name") or "unknown").upper(),
+            "duration": _format_duration(input_metrics.get("duration_seconds")),
+            "size": _format_size(input_metrics.get("size_bytes")),
+            "overall_bitrate": _format_bitrate(input_metrics.get("overall_bitrate_bps")),
+            "video": _format_video_metrics(dict(input_metrics.get("video", {}))),
+            "audio": _format_audio_metrics(dict(input_metrics.get("audio", {}))),
+            "subtitle": _format_subtitle_metrics(dict(input_metrics.get("subtitle", {}))),
+            "chapter_count": int(input_metrics.get("chapter_count", 0) or 0),
+        },
+        "output": {
+            "container": str(output_metrics.get("container_name") or "unknown").upper(),
+            "duration": _format_duration(output_metrics.get("duration_seconds")),
+            "size": _format_size(output_metrics.get("size_bytes")),
+            "overall_bitrate": _format_bitrate(output_metrics.get("overall_bitrate_bps")),
+            "video": _format_video_metrics(dict(output_metrics.get("video", {}))),
+            "audio": _format_audio_metrics(dict(output_metrics.get("audio", {}))),
+            "subtitle": _format_subtitle_metrics(dict(output_metrics.get("subtitle", {}))),
+            "chapter_count": int(output_metrics.get("chapter_count", 0) or 0),
+        },
+        "comparison_highlights": _format_comparison_highlights(comparison),
+        "guidance": [str(item).strip() for item in comparison.get("guidance", []) if str(item).strip()],
+    }
 
 
 def create_temp_config(temp_root: Path) -> Path:
@@ -47,9 +226,112 @@ def create_temp_config(temp_root: Path) -> Path:
     return config_dir
 
 
-def select_sources(service: AppService, target: Path, limit: int) -> list[Path]:
-    matches = [path.resolve() for path in service.inspector.discover_media_files(target)]
-    return matches[:limit]
+def select_sources(
+    service: AppService,
+    target: Path,
+    limit: int,
+    *,
+    output_policy_overrides: dict[str, Any] | None = None,
+) -> tuple[list[Path], dict[str, Any]]:
+    discovered = [path.resolve() for path in service.inspector.discover_media_files(target)]
+    if not discovered:
+        return [], {
+            "strategy": "no_discoverable_sources",
+            "considered_source_count": 0,
+            "chosen_sources": [],
+        }
+    if target.is_file():
+        return discovered[:1], {
+            "strategy": "direct_file_target",
+            "considered_source_count": len(discovered),
+            "chosen_sources": [
+                {
+                    "source_path": str(path),
+                    "source_name": path.name,
+                    "reasons": ["direct target"],
+                }
+                for path in discovered[:1]
+            ],
+        }
+
+    recommendation = service.recommend_target(str(target), output_policy_overrides=output_policy_overrides or {})
+    inspection_reports = [InspectionReport.from_dict(item) for item in recommendation.get("inspection_reports", [])]
+    batch_summary = dict(recommendation.get("batch_summary", {}))
+    dominant_profile = str(batch_summary.get("dominant_profile") or "").strip()
+    outlier_paths = {str(path) for path in batch_summary.get("outlier_sources", [])}
+
+    candidates = [
+        {
+            "source_path": report.source_path,
+            "source_name": Path(report.source_path).name,
+            "manual_review_required": report.manual_review_required,
+            "warning_count": len(report.warnings),
+            "profile_outlier": report.source_path in outlier_paths or (
+                dominant_profile and report.recommended_profile_id != dominant_profile
+            ),
+            "confidence": report.confidence,
+            "recommended_profile_id": report.recommended_profile_id,
+            "detected_source_class": report.detected_source_class,
+            "duration_seconds": report.duration_seconds,
+            "size_bytes": report.size_bytes,
+        }
+        for report in inspection_reports
+    ]
+
+    selected: dict[str, dict[str, Any]] = {}
+    selected_order: list[str] = []
+
+    def add_candidate(candidate: dict[str, Any], reason: str) -> None:
+        source_path = str(candidate["source_path"])
+        if source_path in selected:
+            reasons = list(selected[source_path]["reasons"])
+            if reason not in reasons:
+                reasons.append(reason)
+                selected[source_path]["reasons"] = reasons
+            return
+        if len(selected_order) >= max(1, limit):
+            return
+        selected[source_path] = {**candidate, "reasons": [reason]}
+        selected_order.append(source_path)
+
+    manual_review = sorted(
+        [item for item in candidates if item["manual_review_required"]],
+        key=lambda item: (-item["warning_count"], item["confidence"], -(item["size_bytes"] or 0), item["source_name"].lower()),
+    )
+    profile_outliers = sorted(
+        [item for item in candidates if item["profile_outlier"]],
+        key=lambda item: (-item["warning_count"], item["confidence"], -(item["size_bytes"] or 0), item["source_name"].lower()),
+    )
+    dominant_representatives = sorted(
+        [item for item in candidates if not dominant_profile or item["recommended_profile_id"] == dominant_profile],
+        key=lambda item: (item["manual_review_required"], item["warning_count"], -item["confidence"], -(item["size_bytes"] or 0), item["source_name"].lower()),
+    )
+    largest_sources = sorted(candidates, key=lambda item: (-(item["size_bytes"] or 0), item["source_name"].lower()))
+    longest_sources = sorted(candidates, key=lambda item: (-(item["duration_seconds"] or 0.0), item["source_name"].lower()))
+    alphabetical = sorted(candidates, key=lambda item: item["source_name"].lower())
+
+    for candidate in manual_review:
+        add_candidate(candidate, "manual review candidate")
+    for candidate in profile_outliers:
+        add_candidate(candidate, "profile outlier")
+    for candidate in dominant_representatives:
+        add_candidate(candidate, "dominant profile representative")
+    for candidate in largest_sources:
+        add_candidate(candidate, "largest source")
+    for candidate in longest_sources:
+        add_candidate(candidate, "longest runtime")
+    for candidate in alphabetical:
+        add_candidate(candidate, "alphabetical fill")
+
+    chosen_sources = [selected[source_path] for source_path in selected_order]
+    return [Path(item["source_path"]).resolve() for item in chosen_sources], {
+        "strategy": "representative_batch_sampling",
+        "considered_source_count": len(candidates),
+        "dominant_profile": dominant_profile,
+        "manual_review_count": sum(1 for item in candidates if item["manual_review_required"]),
+        "outlier_count": sum(1 for item in candidates if item["profile_outlier"]),
+        "chosen_sources": chosen_sources,
+    }
 
 
 def extract_sample(source: Path, sample_path: Path, *, sample_seconds: float, start_seconds: float) -> dict[str, Any]:
@@ -135,6 +417,7 @@ def file_stats(path: str | Path | None) -> dict[str, Any]:
 def summarize_run_manifest(manifest: dict[str, Any] | None) -> dict[str, Any]:
     payload = manifest or {}
     encode_settings = dict(payload.get("encode_settings", {}))
+    media_metrics = dict(encode_settings.get("media_metrics", {}))
     size_summary = {
         "input_size_bytes": encode_settings.get("input_size_bytes"),
         "output_size_bytes": encode_settings.get("output_size_bytes"),
@@ -150,7 +433,8 @@ def summarize_run_manifest(manifest: dict[str, Any] | None) -> dict[str, Any]:
         "output_files": list(payload.get("output_files", [])),
         "output_stats": [file_stats(path) for path in payload.get("output_files", [])],
         "size_summary": size_summary,
-        "media_metrics": dict(encode_settings.get("media_metrics", {})),
+        "media_metrics": media_metrics,
+        "metric_overview": build_metric_overview(media_metrics),
         "conversion_guidance": list(encode_settings.get("conversion_guidance", [])),
     }
 
@@ -173,14 +457,6 @@ def summarize_runtime_context(
 def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     items = list(results or [])
 
-    def safe_float(value: object) -> float | None:
-        if value in (None, ""):
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
     def summarize_mode(items: list[dict[str, Any]], key: str) -> dict[str, Any]:
         size_ratios: list[float] = []
         cadence_change_count = 0
@@ -189,6 +465,9 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
         oversized_delivery_count = 0
         completed_runs = 0
         errored_runs = 0
+        output_containers: list[str] = []
+        output_video_codecs: list[str] = []
+        output_resolutions: list[str] = []
         for item in items:
             run = dict(item.get(key, {}))
             if str(run.get("error", "")).strip():
@@ -196,7 +475,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             elif run.get("execution_mode"):
                 completed_runs += 1
             size_summary = dict(run.get("size_summary", {}))
-            size_ratio = safe_float(size_summary.get("size_ratio"))
+            size_ratio = _safe_float(size_summary.get("size_ratio"))
             if size_ratio is not None:
                 size_ratios.append(size_ratio)
             if size_summary.get("oversized_delivery"):
@@ -205,8 +484,14 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             comparison = dict(media_metrics.get("comparison", {}) or {})
             input_video = dict(dict(media_metrics.get("input", {}) or {}).get("video", {}) or {})
             output_video = dict(dict(media_metrics.get("output", {}) or {}).get("video", {}) or {})
-            input_fps = safe_float(input_video.get("avg_frame_rate_fps"))
-            output_fps = safe_float(output_video.get("avg_frame_rate_fps"))
+            _metric_rollup_bucket(
+                dict(media_metrics.get("output", {}) or {}),
+                containers=output_containers,
+                codecs=output_video_codecs,
+                resolutions=output_resolutions,
+            )
+            input_fps = _safe_float(input_video.get("avg_frame_rate_fps"))
+            output_fps = _safe_float(output_video.get("avg_frame_rate_fps"))
             if input_fps is not None and output_fps is not None and abs(input_fps - output_fps) >= 0.5:
                 cadence_change_count += 1
             if comparison.get("subtitle_codec_changed") or int(comparison.get("subtitle_stream_delta", 0) or 0) != 0:
@@ -230,6 +515,9 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             "subtitle_change_count": subtitle_change_count,
             "stream_loss_count": stream_loss_count,
             "size_ratio": size_summary_payload,
+            "output_containers": _count_map(output_containers),
+            "output_video_codecs": _count_map(output_video_codecs),
+            "output_resolutions": _count_map(output_resolutions),
         }
 
     canonical = summarize_mode(items, "canonical_run")
@@ -255,6 +543,34 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             if str(dict(item.get("output_policy", {})).get("encode_profile_id", "")).strip()
         }
     )
+    source_containers: list[str] = []
+    source_video_codecs: list[str] = []
+    source_resolutions: list[str] = []
+    guidance_messages: list[str] = []
+    for item in items:
+        canonical_metrics = dict(dict(item.get("canonical_run", {})).get("media_metrics", {}) or {})
+        degraded_metrics = dict(dict(item.get("degraded_run", {})).get("media_metrics", {}) or {})
+        source_metrics = dict(canonical_metrics.get("input", {}) or degraded_metrics.get("input", {}) or {})
+        _metric_rollup_bucket(
+            source_metrics,
+            containers=source_containers,
+            codecs=source_video_codecs,
+            resolutions=source_resolutions,
+        )
+        guidance_messages.extend(
+            [
+                str(message).strip()
+                for message in dict(canonical_metrics.get("comparison", {}) or {}).get("guidance", [])
+                if str(message).strip()
+            ]
+        )
+        guidance_messages.extend(
+            [
+                str(message).strip()
+                for message in dict(degraded_metrics.get("comparison", {}) or {}).get("guidance", [])
+                if str(message).strip()
+            ]
+        )
     watch_items: list[str] = []
     source_count = len(items)
     if canonical["cadence_change_count"]:
@@ -284,6 +600,12 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
         "detected_source_classes": detected_source_classes,
         "recommended_profiles": recommended_profiles,
         "encode_profiles": encode_profiles,
+        "media_rollup": {
+            "source_containers": _count_map(source_containers),
+            "source_video_codecs": _count_map(source_video_codecs),
+            "source_resolutions": _count_map(source_resolutions),
+            "guidance_messages": _count_map(guidance_messages),
+        },
         "canonical": canonical,
         "degraded": degraded,
         "watch_items": watch_items,
@@ -431,7 +753,14 @@ def main(argv: list[str] | None = None) -> int:
         service = AppService(str(config_dir))
         doctor_report = service.doctor_report()
         setup_actions = service.runtime_action_plan(doctor_report=doctor_report)
-        sources = select_sources(service, target, max(1, args.max_files))
+        normalized_profile_id = normalize_encode_profile_id(args.encode_profile)
+        output_policy_overrides = {"encode_profile_id": normalized_profile_id} if normalized_profile_id else {}
+        sources, selection_summary = select_sources(
+            service,
+            target,
+            max(1, args.max_files),
+            output_policy_overrides=output_policy_overrides,
+        )
         if not sources:
             raise SystemExit(f"No supported video files found under {target}")
 
@@ -440,7 +769,7 @@ def main(argv: list[str] | None = None) -> int:
                 service,
                 source,
                 temp_root,
-                encode_profile_id=normalize_encode_profile_id(args.encode_profile),
+                encode_profile_id=normalized_profile_id,
                 sample_seconds=max(1.0, float(args.sample_seconds)),
                 sample_start_seconds=max(0.0, float(args.sample_start)),
                 preview_seconds=max(0.5, float(args.preview_seconds)),
@@ -453,6 +782,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "target": str(target),
             "source_count": len(results),
+            "selection": selection_summary,
             "runtime_context": summarize_runtime_context(doctor_report, setup_actions),
             "summary": summarize_validation_results(results),
             "results": results,
