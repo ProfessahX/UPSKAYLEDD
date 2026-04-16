@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import io
 import shutil
 import subprocess
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from upskayledd.cli import main
@@ -82,6 +84,17 @@ class CLISmokeTests(unittest.TestCase):
             self.assertIn("linux_wsl", context_ids)
             self.assertIn("generated_at_utc", payload)
             self.assertTrue(payload["watch_items"])
+
+    def test_platform_matrix_prints_context_actions_inline(self) -> None:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            exit_code = main(["platform-matrix"])
+
+        self.assertEqual(exit_code, 0)
+        output = buffer.getvalue()
+        self.assertIn("Windows", output)
+        self.assertIn("Linux (WSL)", output)
+        self.assertIn("Decide on a Linux-side WSL runtime plan", output)
 
     def test_compare_media_writes_json_output(self) -> None:
         ffmpeg = shutil.which("ffmpeg")

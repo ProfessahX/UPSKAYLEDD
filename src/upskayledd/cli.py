@@ -138,6 +138,15 @@ def command_platform_matrix(args: argparse.Namespace) -> int:
         degraded = int(context.get("degraded_check_count", 0) or 0)
         actions = int(context.get("action_count", 0) or 0)
         print(f"  Missing checks: {missing} | Degraded checks: {degraded} | Setup actions: {actions}")
+        for action in context.get("actions", []):
+            if not isinstance(action, dict):
+                continue
+            title = str(action.get("title", "")).strip()
+            detail = str(action.get("detail", "")).strip()
+            if title:
+                print(f"  - {title}")
+            if detail:
+                print(f"    {detail}")
     if payload["watch_items"]:
         print("Watch items:")
         for item in payload["watch_items"]:
