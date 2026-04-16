@@ -435,6 +435,7 @@ class AppServiceTests(unittest.TestCase):
                 session_payload = archive.read("session_state.json").decode("utf-8")
                 dashboard_payload = archive.read("dashboard_snapshot.json").decode("utf-8")
                 run_manifest_payload = archive.read("selected_run_manifest.json").decode("utf-8")
+                platform_matrix_payload = archive.read("platform_validation_matrix.json").decode("utf-8")
 
             self.assertIn("episode01.mp4", session_payload)
             self.assertNotIn(str(source), session_payload)
@@ -442,6 +443,8 @@ class AppServiceTests(unittest.TestCase):
             self.assertNotIn(str(source), dashboard_payload)
             self.assertIn("episode01.mp4", run_manifest_payload)
             self.assertNotIn(str(source), run_manifest_payload)
+            self.assertIn("contexts", platform_matrix_payload)
+            self.assertNotIn(str(ROOT), platform_matrix_payload)
 
 
 if __name__ == "__main__":

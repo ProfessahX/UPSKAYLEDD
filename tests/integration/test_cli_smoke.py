@@ -910,6 +910,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertIn("bundle_manifest.json", payload["entries"])
             with zipfile.ZipFile(bundle) as archive:
                 self.assertIn("doctor_report.json", archive.namelist())
+                self.assertIn("platform_validation_matrix.json", archive.namelist())
 
 
 if __name__ == "__main__":

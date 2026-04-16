@@ -407,6 +407,7 @@ class AppService:
             doctor_report=self.doctor_report(),
             model_packs=self.list_model_packs(),
             setup_actions=self.runtime_action_plan(),
+            platform_validation_matrix=self.platform_validation_matrix(),
             dashboard_snapshot=self.dashboard_snapshot(),
             session_state=session_state,
             selected_job_id=selected_job_id,
