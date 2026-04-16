@@ -27,6 +27,15 @@ class BackendManagerTests(unittest.TestCase):
         selection = BackendManager(config, env).choose_backend()
         self.assertEqual(selection.backend_id, "tensorrt_nvidia")
 
+    def test_doctor_sanitizes_python_executable_path(self) -> None:
+        config = load_app_config()
+        payload = BackendManager(config).doctor().to_dict()
+
+        python_executable = str(payload.get("platform_context", {}).get("python_executable", ""))
+        self.assertTrue(python_executable)
+        self.assertNotIn("\\", python_executable)
+        self.assertNotIn("/", python_executable)
+
 
 if __name__ == "__main__":
     unittest.main()

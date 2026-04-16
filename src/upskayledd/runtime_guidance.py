@@ -37,6 +37,7 @@ class RuntimeGuidanceBuilder:
     ) -> list[RuntimeAction]:
         actions: list[RuntimeAction] = []
         check_rules = self.config.runtime_actions.checks
+        has_runtime_issues = False
         for check in doctor_report.get("checks", []):
             if not isinstance(check, dict):
                 continue
@@ -48,6 +49,8 @@ class RuntimeGuidanceBuilder:
             if rule is None:
                 continue
             detail = rule.missing if status == "missing" else rule.degraded
+            if rule.category == "runtime":
+                has_runtime_issues = True
             actions.append(
                 RuntimeAction(
                     action_id=f"check:{name}",
@@ -82,25 +85,27 @@ class RuntimeGuidanceBuilder:
                 )
             )
 
+        context_action: RuntimeAction | None = None
         platform_context = doctor_report.get("platform_context", {})
         if isinstance(platform_context, dict) and bool(platform_context.get("is_wsl")):
-            has_runtime_issues = any(
-                isinstance(check, dict) and str(check.get("status", "")) in {"missing", "degraded"}
-                for check in doctor_report.get("checks", [])
-            )
             if has_runtime_issues:
                 context_rule = self.config.runtime_actions.contexts.get("wsl_environment")
                 if context_rule is not None:
-                    actions.append(
-                        RuntimeAction(
-                            action_id="context:wsl_environment",
-                            category=context_rule.category,
-                            title=context_rule.title,
-                            detail=context_rule.missing,
-                            status="context",
-                            priority=context_rule.priority,
-                        )
+                    context_action = RuntimeAction(
+                        action_id="context:wsl_environment",
+                        category=context_rule.category,
+                        title=context_rule.title,
+                        detail=context_rule.missing,
+                        status="context",
+                        priority=context_rule.priority,
                     )
 
         actions.sort(key=lambda item: (-item.priority, item.title))
-        return actions[: self.config.runtime_actions.max_actions]
+        max_actions = max(1, self.config.runtime_actions.max_actions)
+        if context_action is None:
+            return actions[:max_actions]
+
+        trimmed = [action for action in actions if action.action_id != context_action.action_id][: max_actions - 1]
+        trimmed.append(context_action)
+        trimmed.sort(key=lambda item: (-item.priority, item.title))
+        return trimmed[:max_actions]

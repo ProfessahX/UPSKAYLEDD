@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from upskayledd.config import _normalize_model_dirs, load_app_config
+from upskayledd.core.errors import ConfigError
 
 
 class ConfigTests(unittest.TestCase):
@@ -56,6 +60,21 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("runtime/models", linux_dirs)
         self.assertIn("$HOME/.local/share/upskayledd/models", linux_dirs)
         self.assertNotIn("%LOCALAPPDATA%/UPSKAYLEDD/models", linux_dirs)
+
+    def test_load_app_config_rejects_unknown_delivery_guidance_profile_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_dir = temp_path / "config"
+            shutil.copytree(Path(__file__).resolve().parents[2] / "config", config_dir)
+            guidance_path = config_dir / "delivery_guidance.toml"
+            payload = guidance_path.read_text(encoding="utf-8")
+            guidance_path.write_text(
+                payload.replace('compatibility_ids = ["h264_compatibility_mp4"]', 'compatibility_ids = ["missing_profile"]'),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ConfigError):
+                load_app_config(str(config_dir))
 
 
 if __name__ == "__main__":

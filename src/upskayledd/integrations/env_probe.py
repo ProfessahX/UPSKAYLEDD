@@ -96,7 +96,7 @@ def detect_platform_context() -> dict[str, object]:
         "system": system,
         "release": release,
         "machine": machine,
-        "python_executable": sys.executable,
+        "python_executable": Path(sys.executable).name or "python",
         "path_style": "windows" if os.name == "nt" else "linux",
         "is_wsl": is_wsl,
         "wsl_distro": wsl_distro,

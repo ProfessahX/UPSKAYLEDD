@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from upskayledd.config import AppConfig, EncodeProfileDefinition
+from upskayledd.core.errors import ConfigError
 from upskayledd.models import InspectionReport
 
 
@@ -18,13 +19,11 @@ class DeliveryGuidanceBuilder:
         reports: list[InspectionReport],
         output_policy: dict[str, Any],
     ) -> dict[str, Any]:
-        selected_profile_id = str(output_policy.get("encode_profile_id") or self.config.encode.default_profile_id).strip()
-        selected_profile = self.config.encode_profile_by_id(selected_profile_id)
+        selected_profile_id, selected_profile = self._resolve_selected_profile(output_policy)
         facts = self._source_facts(reports)
 
         selected_entry = self._profile_entry(
             selected_profile,
-            selected_profile_id=selected_profile_id,
             output_policy=output_policy,
             facts=facts,
             selected=True,
@@ -32,7 +31,6 @@ class DeliveryGuidanceBuilder:
         alternatives = [
             self._profile_entry(
                 profile,
-                selected_profile_id=selected_profile_id,
                 output_policy=output_policy,
                 facts=facts,
                 selected=False,
@@ -53,7 +51,6 @@ class DeliveryGuidanceBuilder:
         self,
         profile: EncodeProfileDefinition,
         *,
-        selected_profile_id: str,
         output_policy: dict[str, Any],
         facts: dict[str, Any],
         selected: bool,
@@ -129,6 +126,19 @@ class DeliveryGuidanceBuilder:
             "subtitle_codec": profile.subtitle_codec,
             "messages": deduped_messages,
         }
+
+    def _resolve_selected_profile(
+        self,
+        output_policy: dict[str, Any],
+    ) -> tuple[str, EncodeProfileDefinition]:
+        selected_profile_id = str(output_policy.get("encode_profile_id") or "").strip()
+        if not selected_profile_id:
+            selected_profile_id = self.config.encode.default_profile_id
+        try:
+            return selected_profile_id, self.config.encode_profile_by_id(selected_profile_id)
+        except ConfigError:
+            fallback_id = self.config.encode.default_profile_id
+            return fallback_id, self.config.encode_profile_by_id(fallback_id)
 
     def _source_facts(self, reports: list[InspectionReport]) -> dict[str, Any]:
         subtitle_codecs = sorted(

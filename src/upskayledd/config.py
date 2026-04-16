@@ -330,7 +330,21 @@ def _load_model_packs(config_dir: Path) -> ModelPackConfig:
     return ModelPackConfig(packs=packs)
 
 
-def _load_conversion_guidance(config_dir: Path) -> ConversionGuidanceConfig:
+def _validate_encode_profile_ids(
+    profile_ids: tuple[str, ...],
+    encode_config: EncodeProfileConfig,
+    *,
+    setting_name: str,
+) -> tuple[str, ...]:
+    known_profile_ids = {profile.id for profile in encode_config.profiles}
+    invalid_ids = [profile_id for profile_id in profile_ids if profile_id not in known_profile_ids]
+    if invalid_ids:
+        invalid_blob = ", ".join(sorted(invalid_ids))
+        raise ConfigError(f"{setting_name} references unknown encode profile id(s): {invalid_blob}")
+    return profile_ids
+
+
+def _load_conversion_guidance(config_dir: Path, encode_config: EncodeProfileConfig) -> ConversionGuidanceConfig:
     payload = _read_toml(config_dir / "conversion_guidance.toml")
     thresholds = payload.get("thresholds", {})
     profiles = payload.get("profiles", {})
@@ -338,27 +352,47 @@ def _load_conversion_guidance(config_dir: Path) -> ConversionGuidanceConfig:
         str(key): str(value)
         for key, value in payload.get("messages", {}).items()
     }
+    compatibility_ids = tuple(str(item) for item in profiles.get("compatibility_ids", []))
     return ConversionGuidanceConfig(
         oversized_ratio=float(thresholds.get("oversized_ratio", 1.05)),
         smaller_ratio=float(thresholds.get("smaller_ratio", 0.95)),
         much_smaller_ratio=float(thresholds.get("much_smaller_ratio", 0.70)),
         fps_change_tolerance=float(thresholds.get("fps_change_tolerance", 0.35)),
-        compatibility_profile_ids=tuple(str(item) for item in profiles.get("compatibility_ids", [])),
+        compatibility_profile_ids=_validate_encode_profile_ids(
+            compatibility_ids,
+            encode_config,
+            setting_name="config/conversion_guidance.toml profiles.compatibility_ids",
+        ),
         messages=messages,
     )
 
 
-def _load_delivery_guidance(config_dir: Path) -> DeliveryGuidanceConfig:
+def _load_delivery_guidance(config_dir: Path, encode_config: EncodeProfileConfig) -> DeliveryGuidanceConfig:
     payload = _read_toml(config_dir / "delivery_guidance.toml")
     profiles = payload.get("profiles", {})
     messages = {
         str(key): str(value)
         for key, value in payload.get("messages", {}).items()
     }
+    archive_ids = tuple(str(item) for item in profiles.get("archive_ids", []))
+    smaller_ids = tuple(str(item) for item in profiles.get("smaller_ids", []))
+    compatibility_ids = tuple(str(item) for item in profiles.get("compatibility_ids", []))
     return DeliveryGuidanceConfig(
-        archive_profile_ids=tuple(str(item) for item in profiles.get("archive_ids", [])),
-        smaller_profile_ids=tuple(str(item) for item in profiles.get("smaller_ids", [])),
-        compatibility_profile_ids=tuple(str(item) for item in profiles.get("compatibility_ids", [])),
+        archive_profile_ids=_validate_encode_profile_ids(
+            archive_ids,
+            encode_config,
+            setting_name="config/delivery_guidance.toml profiles.archive_ids",
+        ),
+        smaller_profile_ids=_validate_encode_profile_ids(
+            smaller_ids,
+            encode_config,
+            setting_name="config/delivery_guidance.toml profiles.smaller_ids",
+        ),
+        compatibility_profile_ids=_validate_encode_profile_ids(
+            compatibility_ids,
+            encode_config,
+            setting_name="config/delivery_guidance.toml profiles.compatibility_ids",
+        ),
         messages=messages,
     )
 
@@ -437,6 +471,7 @@ def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
     fallback_filters = _read_toml(resolved_config_dir / "fallback_filters.toml")
     app_defaults = defaults["app"]
     default_encode_profile_id = app_defaults.get("default_encode_profile_id", "hevc_balanced_archive")
+    encode_config = _load_encode_profiles(resolved_config_dir, default_encode_profile_id)
 
     return AppConfig(
         config_dir=resolved_config_dir,
@@ -493,9 +528,9 @@ def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
             model_dirs=_normalize_model_dirs(defaults["paths"]["model_dirs"])
         ),
         profiles=_load_profiles(resolved_config_dir),
-        encode=_load_encode_profiles(resolved_config_dir, default_encode_profile_id),
-        conversion_guidance=_load_conversion_guidance(resolved_config_dir),
-        delivery_guidance=_load_delivery_guidance(resolved_config_dir),
+        encode=encode_config,
+        conversion_guidance=_load_conversion_guidance(resolved_config_dir, encode_config),
+        delivery_guidance=_load_delivery_guidance(resolved_config_dir, encode_config),
         model_registry=_load_model_registry(resolved_config_dir),
         model_packs=_load_model_packs(resolved_config_dir),
         fallback_filters=FallbackFilterConfig(

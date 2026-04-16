@@ -112,8 +112,8 @@ class PySideAppSmokeTests(unittest.TestCase):
             self.assertEqual(window.summary_page.batch_table.rowCount(), 2)
             self.assertTrue(window.summary_page.review_flagged_button.isEnabled())
             summary_text = window.summary_page.recommendation_view.toPlainText()
-            self.assertIn("Delivery Guidance:", summary_text)
-            self.assertIn("Other Delivery Lanes:", summary_text)
+            self.assertIn(f"{window.ui_config.copy.summary.delivery_guidance_label}:", summary_text)
+            self.assertIn(f"{window.ui_config.copy.summary.alternative_profiles_label}:", summary_text)
 
             window.summary_page.review_flagged_button.click()
             app.processEvents()

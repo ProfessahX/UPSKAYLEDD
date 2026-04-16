@@ -171,6 +171,16 @@ def summarize_runtime_context(
 
 
 def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    items = list(results or [])
+
+    def safe_float(value: object) -> float | None:
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def summarize_mode(items: list[dict[str, Any]], key: str) -> dict[str, Any]:
         size_ratios: list[float] = []
         cadence_change_count = 0
@@ -186,19 +196,19 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             elif run.get("execution_mode"):
                 completed_runs += 1
             size_summary = dict(run.get("size_summary", {}))
-            size_ratio = size_summary.get("size_ratio")
-            if size_ratio not in (None, ""):
-                size_ratios.append(float(size_ratio))
+            size_ratio = safe_float(size_summary.get("size_ratio"))
+            if size_ratio is not None:
+                size_ratios.append(size_ratio)
             if size_summary.get("oversized_delivery"):
                 oversized_delivery_count += 1
-            comparison = dict(run.get("media_metrics", {})).get("comparison", {})
-            input_video = dict(dict(run.get("media_metrics", {})).get("input", {})).get("video", {})
-            output_video = dict(dict(run.get("media_metrics", {})).get("output", {})).get("video", {})
-            input_fps = input_video.get("avg_frame_rate_fps")
-            output_fps = output_video.get("avg_frame_rate_fps")
-            if input_fps not in (None, "") and output_fps not in (None, ""):
-                if abs(float(input_fps) - float(output_fps)) >= 0.5:
-                    cadence_change_count += 1
+            media_metrics = dict(run.get("media_metrics", {}) or {})
+            comparison = dict(media_metrics.get("comparison", {}) or {})
+            input_video = dict(dict(media_metrics.get("input", {}) or {}).get("video", {}) or {})
+            output_video = dict(dict(media_metrics.get("output", {}) or {}).get("video", {}) or {})
+            input_fps = safe_float(input_video.get("avg_frame_rate_fps"))
+            output_fps = safe_float(output_video.get("avg_frame_rate_fps"))
+            if input_fps is not None and output_fps is not None and abs(input_fps - output_fps) >= 0.5:
+                cadence_change_count += 1
             if comparison.get("subtitle_codec_changed") or int(comparison.get("subtitle_stream_delta", 0) or 0) != 0:
                 subtitle_change_count += 1
             if int(comparison.get("subtitle_stream_delta", 0) or 0) < 0 or int(comparison.get("chapter_delta", 0) or 0) < 0:
@@ -222,31 +232,31 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             "size_ratio": size_summary_payload,
         }
 
-    canonical = summarize_mode(results, "canonical_run")
-    degraded = summarize_mode(results, "degraded_run")
+    canonical = summarize_mode(items, "canonical_run")
+    degraded = summarize_mode(items, "degraded_run")
     detected_source_classes = sorted(
         {
             str(dict(item.get("inspection", {})).get("detected_source_class", "")).strip()
-            for item in results
+            for item in items
             if str(dict(item.get("inspection", {})).get("detected_source_class", "")).strip()
         }
     )
     recommended_profiles = sorted(
         {
             str(dict(item.get("inspection", {})).get("recommended_profile_id", "")).strip()
-            for item in results
+            for item in items
             if str(dict(item.get("inspection", {})).get("recommended_profile_id", "")).strip()
         }
     )
     encode_profiles = sorted(
         {
             str(dict(item.get("output_policy", {})).get("encode_profile_id", "")).strip()
-            for item in results
+            for item in items
             if str(dict(item.get("output_policy", {})).get("encode_profile_id", "")).strip()
         }
     )
     watch_items: list[str] = []
-    source_count = len(results)
+    source_count = len(items)
     if canonical["cadence_change_count"]:
         watch_items.append(
             f"Canonical runs changed frame rate on {canonical['cadence_change_count']}/{source_count} sampled source(s)."

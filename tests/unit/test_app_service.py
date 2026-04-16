@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 
 from upskayledd.app_service import AppService
+from upskayledd.core.errors import ConfigError
 from upskayledd.models import ProjectManifest
 
 
@@ -299,8 +300,9 @@ class AppServiceTests(unittest.TestCase):
 
     def test_compare_media_files_returns_normalized_metrics_and_guidance(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            self.skipTest("ffmpeg not available")
+        ffprobe = shutil.which("ffprobe")
+        if not ffmpeg or not ffprobe:
+            self.skipTest("ffmpeg/ffprobe not available")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -346,13 +348,22 @@ class AppServiceTests(unittest.TestCase):
             payload = service.compare_media_files(
                 source,
                 output,
-                encode_profile_id="h264_compatibility_mp4",
+                encode_profile_id="  h264_compatibility_mp4  ",
             )
 
+            self.assertEqual(payload["encode_profile_id"], "h264_compatibility_mp4")
             self.assertEqual(payload["input_metrics"]["container_name"], "matroska")
             self.assertEqual(payload["output_metrics"]["container_name"], "mov")
             guidance = "\n".join(payload["comparison"]["guidance"])
             self.assertIn("Compatibility delivery favors easier playback", guidance)
+
+    def test_compare_media_files_rejects_unknown_encode_profile_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_dir = make_temp_config(Path(temp_dir))
+            service = AppService(str(config_dir))
+
+            with self.assertRaises(ConfigError):
+                service.compare_media_files("before.mkv", "after.mkv", encode_profile_id="not-a-real-profile")
 
     def test_support_bundle_redacts_paths_by_default_and_includes_selected_job_manifest(self) -> None:
         ffmpeg = shutil.which("ffmpeg")

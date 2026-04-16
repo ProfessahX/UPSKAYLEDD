@@ -118,6 +118,26 @@ class DeliveryGuidanceTests(unittest.TestCase):
         self.assertIn("smaller files", selected_blob)
         self.assertIn("flagged episode", selected_blob)
 
+    def test_unknown_selected_encode_profile_falls_back_to_default_lane(self) -> None:
+        builder = DeliveryGuidanceBuilder(load_app_config())
+        report = make_report(source_path="episode01.mkv")
+
+        payload = builder.build(
+            [report],
+            {
+                "encode_profile_id": "  stale_profile_id  ",
+                "container": "mkv",
+                "width": 1440,
+                "height": 1080,
+                "audio_codec": "copy",
+                "subtitle_codec": "copy",
+                "preserve_chapters": True,
+            },
+        )
+
+        self.assertEqual(payload["selected_profile_id"], "hevc_balanced_archive")
+        self.assertEqual(payload["selected_profile_label"], "HEVC Balanced Archive")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -159,6 +159,30 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertTrue(any("larger than its source clip" in item for item in summary["watch_items"]))
         self.assertTrue(any("dropped subtitle or chapter streams" in item for item in summary["watch_items"]))
 
+    def test_summarize_validation_results_handles_empty_and_bad_numeric_values(self) -> None:
+        module = _load_module()
+        summary = module.summarize_validation_results(
+            [
+                {
+                    "inspection": {},
+                    "output_policy": {},
+                    "canonical_run": {
+                        "execution_mode": "vapoursynth_canonical",
+                        "size_summary": {"size_ratio": "not-a-number", "oversized_delivery": False},
+                        "media_metrics": {
+                            "input": {"video": {"avg_frame_rate_fps": "oops"}},
+                            "output": {"video": {"avg_frame_rate_fps": "still-oops"}},
+                        },
+                    },
+                    "degraded_run": {},
+                }
+            ]
+        )
+
+        self.assertEqual(summary["source_count"], 1)
+        self.assertEqual(summary["canonical"]["completed_runs"], 1)
+        self.assertEqual(summary["canonical"]["size_ratio"]["count"], 0)
+
     def test_file_stats_reports_missing_and_existing_paths(self) -> None:
         module = _load_module()
         with tempfile.TemporaryDirectory() as temp_dir:

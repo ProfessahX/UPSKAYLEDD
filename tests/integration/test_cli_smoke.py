@@ -11,6 +11,16 @@ from pathlib import Path
 from upskayledd.cli import main
 
 
+def run_fixture_command(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+    options = {
+        "check": True,
+        "capture_output": True,
+        "text": True,
+        **kwargs,
+    }
+    return subprocess.run(command, **options)  # noqa: S603
+
+
 class CLISmokeTests(unittest.TestCase):
     def test_doctor_writes_json_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -71,7 +81,7 @@ class CLISmokeTests(unittest.TestCase):
             source = temp_path / "source.mkv"
             output_media = temp_path / "output.mp4"
             output_json = temp_path / "compare.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -87,7 +97,7 @@ class CLISmokeTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -132,7 +142,7 @@ class CLISmokeTests(unittest.TestCase):
             source = Path(temp_dir) / "sample.mp4"
             manifest = Path(temp_dir) / "project_manifest.json"
             payload_output = Path(temp_dir) / "recommendation.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -172,7 +182,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.remuxblob"
             manifest = Path(temp_dir) / "project_manifest.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -203,7 +213,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             manifest = Path(temp_dir) / "project_manifest.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -243,7 +253,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             result_path = Path(temp_dir) / "preview_result.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -283,7 +293,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             result_path = Path(temp_dir) / "preview_exact.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -325,7 +335,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             result_path = Path(temp_dir) / "preview_upscale_exact.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -371,7 +381,7 @@ class CLISmokeTests(unittest.TestCase):
             source = Path(temp_dir) / "sample.mp4"
             manifest = Path(temp_dir) / "project_manifest.json"
             output_dir = Path(temp_dir) / "output"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -432,7 +442,7 @@ class CLISmokeTests(unittest.TestCase):
             manifest = temp_path / "project_manifest.json"
             output_dir = temp_path / "output"
             for source in fixtures:
-                subprocess.run(
+                run_fixture_command(
                     [
                         ffmpeg,
                         "-y",
@@ -487,7 +497,7 @@ class CLISmokeTests(unittest.TestCase):
                 "[CHAPTER]\nTIMEBASE=1/1000\nSTART=500\nEND=1000\ntitle=Main Scene\n",
                 encoding="utf-8",
             )
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -548,7 +558,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertTrue(outputs)
             self.assertTrue(payloads)
 
-            probe = subprocess.run(
+            probe = run_fixture_command(
                 [
                     ffprobe,
                     "-v",
@@ -603,7 +613,7 @@ class CLISmokeTests(unittest.TestCase):
                 "[CHAPTER]\nTIMEBASE=1/1000\nSTART=500\nEND=1000\ntitle=Act Two\n",
                 encoding="utf-8",
             )
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -673,7 +683,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertTrue(outputs)
             self.assertTrue(payloads)
 
-            probe = subprocess.run(
+            probe = run_fixture_command(
                 [
                     ffprobe,
                     "-v",
@@ -717,7 +727,7 @@ class CLISmokeTests(unittest.TestCase):
             source = Path(temp_dir) / "sample.mp4"
             manifest = Path(temp_dir) / "project_manifest.json"
             output_dir = Path(temp_dir) / "output"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -776,7 +786,7 @@ class CLISmokeTests(unittest.TestCase):
                 "[CHAPTER]\nTIMEBASE=1/1000\nSTART=500\nEND=1000\ntitle=Act Two\n",
                 encoding="utf-8",
             )
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -837,7 +847,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertTrue(outputs)
             self.assertTrue(payloads)
 
-            probe = subprocess.run(
+            probe = run_fixture_command(
                 [
                     ffprobe,
                     "-v",

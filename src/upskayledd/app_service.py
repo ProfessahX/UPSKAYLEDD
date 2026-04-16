@@ -99,6 +99,7 @@ class AppService:
         encode_profile_id: str | None = None,
         preserve_chapters: bool = True,
     ) -> dict[str, Any]:
+        normalized_encode_profile_id = self._normalize_encode_profile_id(encode_profile_id)
         input_probe = self.ffprobe.probe(input_path)
         output_probe = self.ffprobe.probe(output_path)
         input_metrics = summarize_media_probe(input_probe)
@@ -106,14 +107,14 @@ class AppService:
         comparison = compare_media_metrics(
             input_metrics,
             output_metrics,
-            encode_profile_id=encode_profile_id,
+            encode_profile_id=normalized_encode_profile_id,
             preserve_chapters=preserve_chapters,
             config=self.config.conversion_guidance,
         )
         return {
             "input_path": str(Path(input_path).resolve()),
             "output_path": str(Path(output_path).resolve()),
-            "encode_profile_id": encode_profile_id,
+            "encode_profile_id": normalized_encode_profile_id,
             "preserve_chapters": preserve_chapters,
             "input_metrics": input_metrics,
             "output_metrics": output_metrics,
@@ -508,6 +509,15 @@ class AppService:
             "exists": resolved.exists(),
             "writable": resolved.is_dir() or not resolved.exists(),
         }
+
+    def _normalize_encode_profile_id(self, encode_profile_id: str | None) -> str | None:
+        if encode_profile_id is None:
+            return None
+        normalized = str(encode_profile_id).strip()
+        if not normalized:
+            return None
+        self.config.encode_profile_by_id(normalized)
+        return normalized
 
     def _recent_targets_state_key(self) -> str:
         return f"{self.RECENT_TARGETS_STATE_KEY}:{self.config.app.project_history_scope}"
