@@ -377,6 +377,8 @@ class AppServiceTests(unittest.TestCase):
             config_dir = make_temp_config(Path(temp_dir))
             service = AppService(str(config_dir))
 
+            # This intentionally uses non-existent paths because unknown encode-profile
+            # validation should fail before ffprobe ever tries to read the files.
             with self.assertRaises(ConfigError):
                 service.compare_media_files("before.mkv", "after.mkv", encode_profile_id="not-a-real-profile")
 

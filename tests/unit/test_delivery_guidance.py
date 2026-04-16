@@ -158,6 +158,27 @@ class DeliveryGuidanceTests(unittest.TestCase):
         self.assertEqual(payload["selected_profile_id"], "hevc_balanced_archive")
         self.assertEqual(payload["selected_profile_label"], "HEVC Balanced Archive")
 
+    def test_selected_compatibility_lane_preserves_watch_status(self) -> None:
+        builder = DeliveryGuidanceBuilder(load_app_config())
+        report = make_report(source_path="episode01.mkv")
+
+        payload = builder.build(
+            [report],
+            {
+                "encode_profile_id": "h264_compatibility_mp4",
+                "container": "mp4",
+                "width": 1440,
+                "height": 1080,
+                "audio_codec": "aac",
+                "subtitle_codec": "mov_text",
+                "preserve_chapters": True,
+            },
+        )
+
+        self.assertEqual(payload["selected_profile_id"], "h264_compatibility_mp4")
+        self.assertEqual(payload["selected_status"], "watch")
+        self.assertTrue(payload["selected_is_selected"])
+
 
 if __name__ == "__main__":
     unittest.main()

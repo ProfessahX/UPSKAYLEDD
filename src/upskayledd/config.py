@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -345,6 +346,15 @@ def _validate_encode_profile_ids(
     return profile_ids
 
 
+def _is_wsl_environment() -> bool:
+    if os.name == "nt":
+        return False
+    release = platform.uname().release.lower()
+    if "microsoft" in release or "wsl" in release:
+        return True
+    return bool(os.environ.get("WSL_DISTRO_NAME"))
+
+
 def _load_conversion_guidance(config_dir: Path, encode_config: EncodeProfileConfig) -> ConversionGuidanceConfig:
     payload = _read_toml(config_dir / "conversion_guidance.toml")
     thresholds = payload.get("thresholds", {})
@@ -369,7 +379,40 @@ def _load_conversion_guidance(config_dir: Path, encode_config: EncodeProfileConf
 
 
 def _load_delivery_guidance(config_dir: Path, encode_config: EncodeProfileConfig) -> DeliveryGuidanceConfig:
-    payload = _read_toml(config_dir / "delivery_guidance.toml")
+    guidance_path = config_dir / "delivery_guidance.toml"
+    if not guidance_path.exists():
+        default_profile_id = encode_config.default_profile_id
+        smaller_ids = tuple(
+            profile.id
+            for profile in encode_config.profiles
+            if "smaller" in profile.id and profile.id != default_profile_id
+        )
+        compatibility_ids = tuple(
+            profile.id
+            for profile in encode_config.profiles
+            if "compatibility" in profile.id or profile.container == "mp4"
+        )
+        archive_ids = tuple(dict.fromkeys((default_profile_id, *smaller_ids)))
+        return DeliveryGuidanceConfig(
+            archive_profile_ids=archive_ids,
+            smaller_profile_ids=smaller_ids,
+            compatibility_profile_ids=compatibility_ids,
+            messages={
+                "archive": "Archive-focused HEVC is the safest default for preservation-minded batches.",
+                "smaller": "This lane leans harder toward smaller files; spot-check fine detail before running a whole season.",
+                "compatibility": "This lane favors easier playback on picky devices and older apps.",
+                "subtitle_preserve": "Source includes image-based subtitles, and this lane keeps the safest subtitle-preservation setup.",
+                "subtitle_risk": "Source includes image-based subtitles, and this lane may convert or drop them.",
+                "audio_preserve": "Source includes up to {channels} audio channels, and this lane keeps the original mix.",
+                "audio_transcode": "Source includes up to {channels} audio channels, and this lane transcodes audio to {audio_codec} for compatibility.",
+                "upscale_target": "Target output is {width}x{height}, about {scale}x the source pixel count.",
+                "chapters_preserve": "Chapters stay enabled on this lane.",
+                "chapters_drop": "Chapters are disabled on this lane.",
+                "batch_outliers": "This batch contains source outliers, so validate delivery on a flagged episode before queueing everything.",
+            },
+        )
+
+    payload = _read_toml(guidance_path)
     profiles = payload.get("profiles", {})
     messages = {
         str(key): str(value)
@@ -445,17 +488,18 @@ def _load_runtime_actions(config_dir: Path) -> RuntimeActionConfig:
 
 def _normalize_model_dirs(raw_dirs: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     normalized: list[str] = []
+    is_wsl = _is_wsl_environment()
     for raw_dir in raw_dirs:
         candidate = str(raw_dir).strip()
         if not candidate:
             continue
-        if candidate.startswith("%LOCALAPPDATA%") and os.name != "nt":
+        if candidate.startswith("%LOCALAPPDATA%") and os.name != "nt" and not is_wsl:
             continue
-        if candidate.startswith("$HOME") and os.name == "nt":
+        if candidate.startswith("$HOME") and os.name == "nt" and not is_wsl:
             continue
-        if candidate.startswith("~") and os.name == "nt":
+        if candidate.startswith("~") and os.name == "nt" and not is_wsl:
             continue
-        if candidate.startswith("$XDG_DATA_HOME") and os.name == "nt":
+        if candidate.startswith("$XDG_DATA_HOME") and os.name == "nt" and not is_wsl:
             continue
         if candidate not in normalized:
             normalized.append(candidate)

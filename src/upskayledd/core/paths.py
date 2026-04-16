@@ -79,6 +79,7 @@ class RuntimeTemporaryDirectory:
         self.path.mkdir(parents=True, exist_ok=False)
         self.name = str(self.path)
         self.ignore_cleanup_errors = ignore_cleanup_errors
+        self._cleaned = False
 
     def __enter__(self) -> str:
         return self.name
@@ -87,7 +88,19 @@ class RuntimeTemporaryDirectory:
         self.cleanup()
 
     def cleanup(self) -> None:
-        shutil.rmtree(self.path, ignore_errors=self.ignore_cleanup_errors)
+        if self._cleaned:
+            return
+        try:
+            shutil.rmtree(self.path)
+        except FileNotFoundError:
+            self._cleaned = True
+            return
+        except OSError:
+            if self.ignore_cleanup_errors:
+                self._cleaned = True
+                return
+            raise
+        self._cleaned = True
 
 
 def normalize_path_for_platform(path: str | Path) -> str:

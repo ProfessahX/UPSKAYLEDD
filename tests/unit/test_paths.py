@@ -15,6 +15,7 @@ class PathResolutionTests(unittest.TestCase):
             temp_path = Path(temp_dir)
             self.assertTrue(temp_path.exists())
             self.assertIn(str((Path(__file__).resolve().parents[2] / "runtime" / "test-path-scratch")).lower(), str(temp_path).lower())
+        self.assertFalse(temp_path.exists())
 
     def test_runtime_paths_move_to_local_app_data_when_frozen(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -40,10 +41,22 @@ class PathResolutionTests(unittest.TestCase):
                         with paths.RuntimeTemporaryDirectory("runtime/test-frozen-scratch", prefix="frozen-path-test-") as scratch_dir:
                             scratch_path = Path(scratch_dir)
                             self.assertTrue(scratch_path.exists())
-                            self.assertIn(
+                        self.assertIn(
                                 str((local_app_data / "UPSKAYLEDD" / "runtime" / "test-frozen-scratch")).lower(),
                                 str(scratch_path).lower(),
                             )
+                        self.assertFalse(scratch_path.exists())
+
+    def test_runtime_temporary_directory_cleanup_is_idempotent(self) -> None:
+        with paths.RuntimeTemporaryDirectory("runtime/test-path-scratch", prefix="path-test-") as temp_dir:
+            temp_path = Path(temp_dir)
+
+        self.assertFalse(temp_path.exists())
+        temp_dir_handle = paths.RuntimeTemporaryDirectory("runtime/test-path-scratch", prefix="path-test-")
+        handle_path = Path(temp_dir_handle.name)
+        temp_dir_handle.cleanup()
+        temp_dir_handle.cleanup()
+        self.assertFalse(handle_path.exists())
 
 
 if __name__ == "__main__":

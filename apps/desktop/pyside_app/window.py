@@ -1328,8 +1328,8 @@ def build_media_metrics_snapshot(payload: dict[str, Any] | None) -> dict[str, li
         ("Subtitles", _format_subtitle_metrics(dict(input_metrics.get("subtitle", {}))), _format_subtitle_metrics(dict(output_metrics.get("subtitle", {})))),
         (
             "Chapters",
-            str(int(input_metrics.get("chapter_count", 0) or 0)),
-            str(int(output_metrics.get("chapter_count", 0) or 0)),
+            str(_safe_int(input_metrics.get("chapter_count")) or 0),
+            str(_safe_int(output_metrics.get("chapter_count")) or 0),
         ),
     ]
     guidance = [
@@ -1339,11 +1339,17 @@ def build_media_metrics_snapshot(payload: dict[str, Any] | None) -> dict[str, li
     ]
     if not guidance:
         comparison = dict(media_metrics.get("comparison", {}))
-        guidance = [
+        comparison_guidance = [
+            str(item).strip()
+            for item in comparison.get("guidance", [])
+            if str(item).strip()
+        ]
+        derived_guidance = [
             line.removeprefix("- ").strip()
             for line in _format_media_comparison_lines(comparison)
             if line.strip()
         ]
+        guidance = list(dict.fromkeys([*comparison_guidance, *derived_guidance]))
     return {"rows": rows, "guidance": guidance}
 
 
@@ -1369,9 +1375,8 @@ def build_media_change_highlights(payload: dict[str, Any] | None) -> list[dict[s
 
     highlights: list[dict[str, str]] = []
 
-    size_ratio = comparison.get("size_ratio")
-    if size_ratio not in (None, ""):
-        ratio_value = float(size_ratio)
+    ratio_value = _safe_float(comparison.get("size_ratio"))
+    if ratio_value is not None:
         if ratio_value > 1.05:
             size_tone = "danger"
         elif ratio_value < 0.60:
@@ -1401,19 +1406,17 @@ def build_media_change_highlights(payload: dict[str, Any] | None) -> list[dict[s
                 "title": "Resolution",
                 "value": f"{input_resolution} -> {output_resolution}",
                 "detail": (
-                    f"Resolution scale is {float(comparison.get('resolution_scale', 0.0) or 0.0):.2f}x."
-                    if comparison.get("resolution_scale") not in (None, "")
+                    f"Resolution scale is {_safe_float(comparison.get('resolution_scale')):.2f}x."
+                    if _safe_float(comparison.get("resolution_scale")) is not None
                     else "Source and output resolution are shown here for quick review."
                 ),
                 "tone": "info",
             }
         )
 
-    input_fps = input_video.get("avg_frame_rate_fps")
-    output_fps = output_video.get("avg_frame_rate_fps")
-    if input_fps not in (None, "") and output_fps not in (None, ""):
-        input_fps_value = float(input_fps)
-        output_fps_value = float(output_fps)
+    input_fps_value = _safe_float(input_video.get("avg_frame_rate_fps"))
+    output_fps_value = _safe_float(output_video.get("avg_frame_rate_fps"))
+    if input_fps_value is not None and output_fps_value is not None:
         if abs(input_fps_value - output_fps_value) >= 0.5:
             highlights.append(
                 {
@@ -1425,8 +1428,8 @@ def build_media_change_highlights(payload: dict[str, Any] | None) -> list[dict[s
                 }
             )
 
-    subtitle_stream_delta = int(comparison.get("subtitle_stream_delta", 0) or 0)
-    chapter_delta = int(comparison.get("chapter_delta", 0) or 0)
+    subtitle_stream_delta = _safe_int(comparison.get("subtitle_stream_delta")) or 0
+    chapter_delta = _safe_int(comparison.get("chapter_delta")) or 0
     audio_changed = bool(comparison.get("audio_codec_changed"))
     subtitle_changed = bool(comparison.get("subtitle_codec_changed"))
     if subtitle_stream_delta < 0 or chapter_delta < 0:
@@ -1461,7 +1464,7 @@ def _format_media_metrics_block(label: str, metrics: dict[str, Any]) -> list[str
         f"{label}: {_format_container(metrics)} · {_format_duration(metrics.get('duration_seconds'))} · {_format_size(metrics.get('size_bytes'))} · {_format_bitrate(metrics.get('overall_bitrate_bps'))}",
         f"- Video: {_format_video_metrics(video)}",
         f"- Audio: {_format_audio_metrics(audio)}",
-        f"- Subtitles: {_format_subtitle_metrics(subtitle)} · Chapters: {int(metrics.get('chapter_count', 0) or 0)}",
+        f"- Subtitles: {_format_subtitle_metrics(subtitle)} · Chapters: {_safe_int(metrics.get('chapter_count')) or 0}",
     ]
 
 
@@ -1469,15 +1472,15 @@ def _format_media_comparison_lines(comparison: dict[str, Any]) -> list[str]:
     if not comparison:
         return []
     lines: list[str] = []
-    size_ratio = comparison.get("size_ratio")
-    overall_bitrate_ratio = comparison.get("overall_bitrate_ratio")
-    resolution_scale = comparison.get("resolution_scale")
-    if size_ratio not in (None, ""):
-        lines.append(f"- Size ratio: {float(size_ratio):.2f}x")
-    if overall_bitrate_ratio not in (None, ""):
-        lines.append(f"- Overall bitrate ratio: {float(overall_bitrate_ratio):.2f}x")
-    if resolution_scale not in (None, ""):
-        lines.append(f"- Resolution scale: {float(resolution_scale):.2f}x")
+    size_ratio = _safe_float(comparison.get("size_ratio"))
+    overall_bitrate_ratio = _safe_float(comparison.get("overall_bitrate_ratio"))
+    resolution_scale = _safe_float(comparison.get("resolution_scale"))
+    if size_ratio is not None:
+        lines.append(f"- Size ratio: {size_ratio:.2f}x")
+    if overall_bitrate_ratio is not None:
+        lines.append(f"- Overall bitrate ratio: {overall_bitrate_ratio:.2f}x")
+    if resolution_scale is not None:
+        lines.append(f"- Resolution scale: {resolution_scale:.2f}x")
     if comparison.get("container_changed"):
         lines.append("- Container changed during delivery.")
     if comparison.get("video_codec_changed"):
@@ -1486,13 +1489,34 @@ def _format_media_comparison_lines(comparison: dict[str, Any]) -> list[str]:
         lines.append("- Audio codec changed during delivery.")
     if comparison.get("subtitle_codec_changed"):
         lines.append("- Subtitle codec changed during delivery.")
-    subtitle_stream_delta = comparison.get("subtitle_stream_delta")
+    subtitle_stream_delta = _safe_int(comparison.get("subtitle_stream_delta"))
     if subtitle_stream_delta not in (None, 0):
-        lines.append(f"- Subtitle stream delta: {int(subtitle_stream_delta):+d}")
-    chapter_delta = comparison.get("chapter_delta")
+        lines.append(f"- Subtitle stream delta: {subtitle_stream_delta:+d}")
+    chapter_delta = _safe_int(comparison.get("chapter_delta"))
     if chapter_delta not in (None, 0):
-        lines.append(f"- Chapter delta: {int(chapter_delta):+d}")
+        lines.append(f"- Chapter delta: {chapter_delta:+d}")
     return lines
+
+
+def _safe_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError, OverflowError):
+            return None
 
 
 def _format_container(metrics: dict[str, Any]) -> str:

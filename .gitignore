@@ -112,6 +112,8 @@ docs/
 /Shitposting_pitch.png
 /Shitposting_pitch.psd
 /icon.psd
+/coderabbitfindings.md
+/pr_feedback_collector.py
 
 # --- Environment files ---
 .env

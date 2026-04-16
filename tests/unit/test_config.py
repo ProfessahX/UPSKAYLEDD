@@ -94,6 +94,33 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.encode.default_profile_id, "h264_compatibility_mp4")
             self.assertEqual(config.app.default_encode_profile_id, "h264_compatibility_mp4")
 
+    def test_load_app_config_uses_default_delivery_guidance_when_file_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_dir = temp_path / "config"
+            shutil.copytree(Path(__file__).resolve().parents[2] / "config", config_dir)
+            (config_dir / "delivery_guidance.toml").unlink()
+
+            config = load_app_config(str(config_dir))
+
+            self.assertEqual(config.delivery_guidance.archive_profile_ids[0], config.encode.default_profile_id)
+            self.assertIn("h264_compatibility_mp4", config.delivery_guidance.compatibility_profile_ids)
+            self.assertTrue(config.delivery_guidance.messages)
+
+    def test_normalize_model_dirs_keeps_windows_and_unix_paths_inside_wsl(self) -> None:
+        raw_dirs = (
+            "runtime/models",
+            "%LOCALAPPDATA%/UPSKAYLEDD/models",
+            "$HOME/.local/share/upskayledd/models",
+        )
+
+        with patch("upskayledd.config.os.name", "posix"), patch("upskayledd.config._is_wsl_environment", return_value=True):
+            model_dirs = _normalize_model_dirs(raw_dirs)
+
+        self.assertIn("runtime/models", model_dirs)
+        self.assertIn("%LOCALAPPDATA%/UPSKAYLEDD/models", model_dirs)
+        self.assertIn("$HOME/.local/share/upskayledd/models", model_dirs)
+
 
 if __name__ == "__main__":
     unittest.main()

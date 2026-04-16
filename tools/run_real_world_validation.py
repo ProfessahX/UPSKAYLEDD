@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -16,10 +17,14 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from upskayledd.app_service import AppService
-from upskayledd.core.paths import RuntimeTemporaryDirectory, resolve_runtime_path
+from upskayledd.core.errors import ConfigError
+from upskayledd.core.paths import RuntimeTemporaryDirectory
 from upskayledd.integrations.ffprobe import FFprobeAdapter
 from upskayledd.media_metrics import summarize_media_probe
 from upskayledd.models import ComparisonMode, FidelityMode, InspectionReport, ProjectManifest
+
+
+SUBPROCESS_TIMEOUT_SECONDS = 300
 
 
 def _replace_default_path(content: str, key: str, replacement: Path) -> str:
@@ -47,11 +52,34 @@ def _safe_int(value: object) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         try:
             return int(float(value))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
+
+
+def _artifact_key(path: str | Path) -> str:
+    resolved = str(Path(path).resolve()).encode("utf-8")
+    return hashlib.sha1(resolved).hexdigest()[:10]
+
+
+def _run_external(command: list[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            command,
+            124,
+            "",
+            f"Timed out after {SUBPROCESS_TIMEOUT_SECONDS} seconds.",
+        )
 
 
 def _count_map(values: list[str]) -> dict[str, int]:
@@ -225,32 +253,27 @@ def probe_vspipe_fps(path: str | Path) -> float | None:
         return None
     resolved = Path(path).resolve()
     try:
-        probe_root = resolve_runtime_path("runtime/validation/probe-cache")
-        probe_root.mkdir(parents=True, exist_ok=True)
-        stat = resolved.stat()
-        cache_token = f"{stat.st_size}-{stat.st_mtime_ns}"
+        resolved.stat()
     except OSError:
         return None
-    index_path = probe_root / f"{resolved.stem}-{cache_token}.ffindex"
-    script_path = probe_root / f"{resolved.stem}-{cache_token}.vpy"
     try:
-        script_path.write_text(
-            (
-                "import vapoursynth as vs\n"
-                "core = vs.core\n"
-                f"clip = core.ffms2.Source(source={str(resolved)!r}, cache=True, cachefile={str(index_path)!r})\n"
-                "clip.set_output()\n"
-            ),
-            encoding="utf-8",
-        )
+        with RuntimeTemporaryDirectory("runtime/validation/probe-cache", prefix="probe-") as probe_dir:
+            probe_root = Path(probe_dir)
+            artifact_key = _artifact_key(resolved)
+            index_path = probe_root / f"{resolved.stem}-{artifact_key}.ffindex"
+            script_path = probe_root / f"{resolved.stem}-{artifact_key}.vpy"
+            script_path.write_text(
+                (
+                    "import vapoursynth as vs\n"
+                    "core = vs.core\n"
+                    f"clip = core.ffms2.Source(source={str(resolved)!r}, cache=True, cachefile={str(index_path)!r})\n"
+                    "clip.set_output()\n"
+                ),
+                encoding="utf-8",
+            )
+            completed = _run_external([vspipe, "--info", str(script_path), "-"])
     except OSError:
         return None
-    completed = subprocess.run(
-        [vspipe, "--info", str(script_path), "-"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
     fps = _extract_vspipe_fps(completed.stdout) or _extract_vspipe_fps(completed.stderr)
     if fps is not None:
         return fps
@@ -345,7 +368,10 @@ def select_sources(
     *,
     output_policy_overrides: dict[str, Any] | None = None,
 ) -> tuple[list[Path], dict[str, Any]]:
-    discovered = [path.resolve() for path in service.inspector.discover_media_files(target)]
+    discovered = sorted(
+        (path.resolve() for path in service.inspector.discover_media_files(target)),
+        key=lambda path: str(path).lower(),
+    )
     if not discovered:
         return [], {
             "strategy": "no_discoverable_sources",
@@ -483,7 +509,7 @@ def extract_sample(source: Path, sample_path: Path, *, sample_seconds: float, st
         "copy",
         str(sample_path),
     ]
-    copy_run = subprocess.run(copy_command, capture_output=True, text=True, check=False)
+    copy_run = _run_external(copy_command)
     if copy_run.returncode == 0 and sample_path.exists() and sample_path.stat().st_size > 0:
         sample_metrics = _probe_metrics(ffprobe, sample_path)
         copy_fallback_reasons = sample_copy_fallback_reasons(
@@ -522,7 +548,7 @@ def extract_sample(source: Path, sample_path: Path, *, sample_seconds: float, st
         "copy",
         str(sample_path),
     ]
-    transcode_run = subprocess.run(transcode_command, capture_output=True, text=True, check=False)
+    transcode_run = _run_external(transcode_command)
     if transcode_run.returncode == 0 and sample_path.exists() and sample_path.stat().st_size > 0:
         payload = {"mode": "transcode_fallback", "sample_path": str(sample_path)}
         if copy_run.returncode == 0:
@@ -554,7 +580,7 @@ def extract_sample(source: Path, sample_path: Path, *, sample_seconds: float, st
         "aac",
         str(sample_path),
     ]
-    minimal_transcode_run = subprocess.run(minimal_transcode_command, capture_output=True, text=True, check=False)
+    minimal_transcode_run = _run_external(minimal_transcode_command)
     if minimal_transcode_run.returncode != 0 or not sample_path.exists() or sample_path.stat().st_size <= 0:
         stderr = minimal_transcode_run.stderr.strip() or transcode_run.stderr.strip() or copy_run.stderr.strip()
         raise RuntimeError(f"Could not extract sample from {source.name}: {stderr}")
@@ -632,7 +658,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
     items = list(results or [])
     sample_extraction_modes: list[str] = []
 
-    def summarize_mode(result_items: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    def summarize_mode(runs: list[dict[str, Any]], key: str) -> dict[str, Any]:
         size_ratios: list[float] = []
         cadence_change_count = 0
         decode_cadence_mismatch_count = 0
@@ -647,7 +673,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
         output_frame_rates: list[str] = []
         probe_frame_rates: list[str] = []
         decode_frame_rates: list[str] = []
-        for item in result_items:
+        for item in runs:
             run = dict(item.get(key) or {})
             if str(run.get("error", "")).strip():
                 errored_runs += 1
@@ -855,9 +881,10 @@ def run_validation_for_source(
     report = dict(recommendation["inspection_reports"][0])
     delivery_guidance = dict(recommendation.get("delivery_guidance", {}))
 
+    artifact_key = _artifact_key(source)
     sample_dir = working_root / "samples"
     sample_dir.mkdir(parents=True, exist_ok=True)
-    sample_path = sample_dir / f"{source.stem}.sample.mkv"
+    sample_path = sample_dir / f"{source.stem}-{artifact_key}.sample.mkv"
     sample_info = extract_sample(
         source,
         sample_path,
@@ -904,7 +931,7 @@ def run_validation_for_source(
             model_ids=model_ids,
         ).to_dict()
 
-    run_root = working_root / "runs" / source.stem
+    run_root = working_root / "runs" / f"{source.stem}-{artifact_key}"
     run_root.mkdir(parents=True, exist_ok=True)
     _, degraded_jobs = service.run_project(manifest, output_dir=run_root / "degraded", execute_degraded=True)
     degraded_manifest = service.run_manifest_for_job(degraded_jobs[0].job_id) if degraded_jobs else None
@@ -986,6 +1013,11 @@ def main(argv: list[str] | None = None) -> int:
         doctor_report = service.doctor_report()
         setup_actions = service.runtime_action_plan(doctor_report=doctor_report)
         normalized_profile_id = normalize_encode_profile_id(args.encode_profile)
+        if normalized_profile_id:
+            try:
+                service.config.encode_profile_by_id(normalized_profile_id)
+            except ConfigError as exc:
+                raise SystemExit(str(exc)) from exc
         output_policy_overrides = {"encode_profile_id": normalized_profile_id} if normalized_profile_id else {}
         sources, selection_summary = select_sources(
             service,

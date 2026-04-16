@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shlex
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ from upskayledd.config import load_app_config
 from upskayledd.core.paths import RuntimeTemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[2]
+SUBPROCESS_TIMEOUT_SECONDS = 300
 
 
 def windows_to_wsl_path(path: Path) -> str:
@@ -104,6 +106,8 @@ def build_watch_items(contexts: list[dict[str, Any]]) -> list[str]:
             items.append(f"{label} is usable but still carries degraded runtime checks.")
         if int(context.get("action_count", 0) or 0) > 0:
             items.append(f"{label} still has prioritized setup actions to clear.")
+        elif str(context.get("health", "")).strip() == "watch":
+            items.append(f"{label} has warning-level runtime issues worth checking before a long validation run.")
     if len(contexts) >= 2:
         native = next((item for item in contexts if item.get("context_id") == "windows_native"), None)
         wsl = next((item for item in contexts if item.get("context_id") == "linux_wsl"), None)
@@ -118,6 +122,13 @@ def _failure_detail(label: str, exc: subprocess.CalledProcessError) -> RuntimeEr
     stderr = str(exc.stderr or "").replace("\x00", "").strip()
     stdout = str(exc.stdout or "").replace("\x00", "").strip()
     detail = stderr or stdout or f"exit code {exc.returncode}"
+    return RuntimeError(f"{label} failed: {detail}")
+
+
+def _timeout_detail(label: str, exc: subprocess.TimeoutExpired) -> RuntimeError:
+    stderr = str(exc.stderr or "").replace("\x00", "").strip()
+    stdout = str(exc.stdout or "").replace("\x00", "").strip()
+    detail = stderr or stdout or f"timed out after {exc.timeout} seconds"
     return RuntimeError(f"{label} failed: {detail}")
 
 
@@ -137,7 +148,8 @@ def _native_payload(repo_root: Path, scratch_root: str | Path) -> dict[str, Any]
                 check=True,
                 capture_output=True,
                 text=True,
-            )
+                timeout=SUBPROCESS_TIMEOUT_SECONDS,
+            )  # noqa: S603 # trust-boundary: intentional internal CLI invocation
             subprocess.run(
                 [sys.executable, "-m", "upskayledd", "setup-plan", "--json-output", str(setup_json)],
                 cwd=repo_root,
@@ -145,9 +157,12 @@ def _native_payload(repo_root: Path, scratch_root: str | Path) -> dict[str, Any]
                 check=True,
                 capture_output=True,
                 text=True,
-            )
+                timeout=SUBPROCESS_TIMEOUT_SECONDS,
+            )  # noqa: S603 # trust-boundary: intentional internal CLI invocation
         except subprocess.CalledProcessError as exc:
             raise _failure_detail("Native Windows validation command", exc) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise _timeout_detail("Native Windows validation command", exc) from exc
         return {
             "doctor": json.loads(doctor_json.read_text(encoding="utf-8")),
             "setup_plan": json.loads(setup_json.read_text(encoding="utf-8")),
@@ -176,9 +191,12 @@ def _wsl_payload(repo_root: Path, scratch_root: str | Path) -> dict[str, Any]:
                 check=True,
                 capture_output=True,
                 text=True,
-            )
+                timeout=SUBPROCESS_TIMEOUT_SECONDS,
+            )  # noqa: S603 # trust-boundary: intentional internal CLI invocation
         except subprocess.CalledProcessError as exc:
             raise _failure_detail("Linux-side WSL validation command", exc) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise _timeout_detail("Linux-side WSL validation command", exc) from exc
         return {
             "doctor": json.loads(doctor_json.read_text(encoding="utf-8")),
             "setup_plan": json.loads(setup_json.read_text(encoding="utf-8")),
@@ -190,9 +208,31 @@ def collect_contexts(repo_root: Path) -> list[dict[str, Any]]:
     actionable_check_names = set(app_config.runtime_actions.checks.keys())
     scratch_root = app_config.app.scratch_dir
     contexts: list[dict[str, Any]] = []
-    try:
-        native_payload = _native_payload(repo_root, scratch_root)
-    except Exception as exc:  # noqa: BLE001
+    if platform.system() == "Windows":
+        try:
+            native_payload = _native_payload(repo_root, scratch_root)
+        except Exception as exc:  # noqa: BLE001
+            contexts.append(
+                summarize_context(
+                    "windows_native",
+                    "Windows (native)",
+                    None,
+                    None,
+                    available=False,
+                    error=str(exc),
+                )
+            )
+        else:
+            contexts.append(
+                summarize_context(
+                    "windows_native",
+                    "Windows (native)",
+                    native_payload["doctor"],
+                    native_payload["setup_plan"],
+                    actionable_check_names=actionable_check_names,
+                )
+            )
+    else:
         contexts.append(
             summarize_context(
                 "windows_native",
@@ -200,17 +240,7 @@ def collect_contexts(repo_root: Path) -> list[dict[str, Any]]:
                 None,
                 None,
                 available=False,
-                error=str(exc),
-            )
-        )
-    else:
-        contexts.append(
-            summarize_context(
-                "windows_native",
-                "Windows (native)",
-                native_payload["doctor"],
-                native_payload["setup_plan"],
-                actionable_check_names=actionable_check_names,
+                error="not running on a Windows host",
             )
         )
     try:

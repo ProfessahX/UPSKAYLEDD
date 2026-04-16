@@ -43,6 +43,7 @@ class DeliveryGuidanceBuilder:
             "selected_profile_label": selected_profile.label,
             "selected_messages": selected_entry["messages"],
             "selected_status": selected_entry["status"],
+            "selected_is_selected": True,
             "alternative_profiles": alternatives,
             "source_facts": facts,
         }
@@ -60,19 +61,18 @@ class DeliveryGuidanceBuilder:
 
         if profile.id in self.config.delivery_guidance.archive_profile_ids:
             messages.append(self._message("archive"))
-            status = "recommended" if selected else "archive"
+            status = "archive"
         if profile.id in self.config.delivery_guidance.smaller_profile_ids:
             messages.append(self._message("smaller"))
-            status = "selected" if selected else "smaller_file"
+            status = "smaller_file"
         if profile.id in self.config.delivery_guidance.compatibility_profile_ids:
             messages.append(self._message("compatibility"))
-            status = "selected" if selected else "compatibility"
+            status = "compatibility"
 
         if facts["has_image_subtitles"]:
             if profile.container == "mp4" or profile.subtitle_codec != "copy":
                 messages.append(self._message("subtitle_risk"))
-                if not selected:
-                    status = "watch"
+                status = "watch"
             else:
                 messages.append(self._message("subtitle_preserve"))
 
@@ -114,12 +114,13 @@ class DeliveryGuidanceBuilder:
             messages.append(self._message("batch_outliers"))
 
         deduped_messages = [message for message in dict.fromkeys(messages) if message]
-        if selected:
+        if selected and status == "alternative":
             status = "selected"
         return {
             "id": profile.id,
             "label": profile.label,
             "status": status,
+            "is_selected": selected,
             "container": profile.container,
             "video_codec": profile.video_codec,
             "audio_codec": profile.audio_codec,

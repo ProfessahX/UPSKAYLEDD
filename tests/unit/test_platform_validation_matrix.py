@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from upskayledd.platform_validation_matrix import _native_payload
+from upskayledd.platform_validation_matrix import SUBPROCESS_TIMEOUT_SECONDS, _native_payload
 
 
 class PlatformValidationMatrixInternalTests(unittest.TestCase):
@@ -25,9 +25,11 @@ class PlatformValidationMatrixInternalTests(unittest.TestCase):
                 check: bool,
                 capture_output: bool,
                 text: bool,
+                timeout: int,
             ) -> subprocess.CompletedProcess[str]:
                 self.assertEqual(cwd, repo_root)
                 self.assertEqual(env["PYTHONPATH"], str(repo_root / "src"))
+                self.assertEqual(timeout, SUBPROCESS_TIMEOUT_SECONDS)
                 output_path = Path(command[-1])
                 recorded_output_paths.append(output_path)
                 if output_path.name == "doctor.json":

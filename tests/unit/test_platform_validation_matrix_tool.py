@@ -3,11 +3,14 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
+
+from upskayledd import platform_validation_matrix as matrix_module
 
 
 def _load_module():
@@ -176,22 +179,29 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
 
     def test_main_writes_flagged_output_path_with_collection_metadata(self) -> None:
         module = _load_module()
-        contexts = [
-            module.summarize_context(
-                "windows_native",
-                "Windows (native)",
-                {
-                    "platform_summary": "Windows · 10 · AMD64 · Python 3.13.12",
-                    "checks": [{"name": "ffmpeg", "status": "healthy"}],
-                    "warnings": [],
-                    "path_rules": [],
-                },
-                {"actions": []},
-            )
-        ]
+        payload = {
+            "generated_at_utc": "2026-04-16T00:00:00Z",
+            "repo_root": str(module.ROOT),
+            "contexts": [
+                module.summarize_context(
+                    "windows_native",
+                    "Windows (native)",
+                    {
+                        "platform_summary": "Windows · 10 · AMD64 · Python 3.13.12",
+                        "checks": [{"name": "ffmpeg", "status": "healthy"}],
+                        "warnings": [],
+                        "path_rules": [],
+                    },
+                    {"actions": []},
+                )
+            ],
+            "watch_items": [
+                "Native and collected secondary runtime contexts look aligned enough for the current release-hardening pass."
+            ],
+        }
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "matrix.json"
-            with mock.patch.object(module, "collect_contexts", return_value=contexts):
+            with mock.patch.object(module, "build_platform_validation_payload", return_value=payload):
                 with redirect_stdout(io.StringIO()):
                     result = module.main(["--output-json", str(output_path)])
 
@@ -200,6 +210,51 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
             self.assertEqual(payload["repo_root"], str(module.ROOT))
             self.assertIn("generated_at_utc", payload)
             self.assertEqual(payload["contexts"][0]["context_id"], "windows_native")
+            self.assertIn(
+                "Native and collected secondary runtime contexts look aligned enough for the current release-hardening pass.",
+                payload["watch_items"],
+            )
+
+    def test_collect_contexts_marks_windows_native_unavailable_on_non_windows_hosts(self) -> None:
+        fake_config = mock.Mock()
+        fake_config.runtime_actions.checks.keys.return_value = {"ffmpeg"}
+        fake_config.app.scratch_dir = "runtime/scratch"
+        wsl_payload = {
+            "doctor": {
+                "platform_summary": "Linux (WSL)",
+                "checks": [{"name": "ffmpeg", "status": "healthy"}],
+                "warnings": [],
+                "path_rules": [],
+            },
+            "setup_plan": {"actions": []},
+        }
+
+        with (
+            mock.patch.object(matrix_module, "load_app_config", return_value=fake_config),
+            mock.patch.object(matrix_module.platform, "system", return_value="Linux"),
+            mock.patch.object(matrix_module, "_native_payload") as native_payload,
+            mock.patch.object(matrix_module, "_wsl_payload", return_value=wsl_payload),
+        ):
+            contexts = matrix_module.collect_contexts(Path("Z:/UPSKAYLEDD"))
+
+        native_payload.assert_not_called()
+        native = next(item for item in contexts if item["context_id"] == "windows_native")
+        self.assertFalse(native["available"])
+        self.assertIn("not running on a Windows host", native["error"])
+
+    def test_native_payload_timeout_reports_clear_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            (repo_root / "src").mkdir()
+            with mock.patch.object(
+                matrix_module.subprocess,
+                "run",
+                side_effect=subprocess.TimeoutExpired(["python"], timeout=matrix_module.SUBPROCESS_TIMEOUT_SECONDS),
+            ):
+                with self.assertRaises(RuntimeError) as raised:
+                    matrix_module._native_payload(repo_root, "runtime/scratch")
+
+        self.assertIn("timed out", str(raised.exception))
 
 
 if __name__ == "__main__":

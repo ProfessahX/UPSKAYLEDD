@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -60,6 +61,30 @@ class RealWorldValidationToolTests(unittest.TestCase):
                 mock.patch.object(Path, "write_text", side_effect=OSError("read only")),
             ):
                 self.assertIsNone(module.probe_vspipe_fps(source))
+
+    def test_probe_vspipe_fps_returns_none_when_vspipe_times_out(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "sample.mkv"
+            source.write_bytes(b"video")
+
+            with (
+                mock.patch.object(module.shutil, "which", return_value="vspipe"),
+                mock.patch.object(
+                    module.subprocess,
+                    "run",
+                    side_effect=subprocess.TimeoutExpired(["vspipe"], timeout=module.SUBPROCESS_TIMEOUT_SECONDS),
+                ) as run_mock,
+            ):
+                self.assertIsNone(module.probe_vspipe_fps(source))
+
+            self.assertEqual(run_mock.call_args.kwargs["timeout"], module.SUBPROCESS_TIMEOUT_SECONDS)
+
+    def test_safe_int_returns_none_for_non_finite_values(self) -> None:
+        module = _load_module()
+
+        self.assertIsNone(module._safe_int("inf"))
+        self.assertIsNone(module._safe_int("nan"))
 
     def test_summarize_run_manifest_surfaces_size_warning_state(self) -> None:
         module = _load_module()
@@ -361,6 +386,19 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(payload["considered_source_count"], 3)
         self.assertEqual(len(payload["chosen_sources"]), 2)
         self.assertEqual(payload["chosen_sources"][0]["reasons"], ["discovery fallback"])
+
+    def test_select_sources_sorts_discovered_media_deterministically(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir)
+            discovered = [target / "Episode10.mkv", target / "episode02.mkv", target / "episode01.mkv"]
+            service = mock.Mock()
+            service.inspector.discover_media_files.return_value = discovered
+            service.recommend_target.return_value = {"inspection_reports": [], "batch_summary": {}}
+
+            selected, _ = module.select_sources(service, target, limit=3)
+
+        self.assertEqual([path.name for path in selected], ["episode01.mkv", "episode02.mkv", "Episode10.mkv"])
 
     def test_summarize_validation_results_distinguishes_decode_aligned_mixed_groups(self) -> None:
         module = _load_module()
