@@ -1,0 +1,198 @@
+[stages.inspect]
+rail_label = "Source"
+description = "Review what the app detected before you start changing the pipeline. This stage is informational and keeps the recommendation grounded in real source traits."
+summary_template = "Inspection report"
+simple_section_title = "Source Summary"
+advanced_section_title = "Inspection Details"
+
+[stages.structural_repair]
+rail_label = "Repair"
+description = "Correct cadence and structural issues before cleanup or upscale. This is where we keep telecine, interlace, and geometry problems from getting sharpened into the final result."
+summary_template = "{mode}"
+simple_section_title = "Recommended Repair"
+advanced_section_title = "Advanced Repair"
+
+[[stages.structural_repair.controls]]
+key = "mode"
+label = "Repair Strategy"
+source = "stage"
+widget = "combo"
+tier = "simple"
+help = "Choose the structural-repair strategy the engine should apply for this source."
+options = ["ivtc_or_deinterlace", "pal_cadence_check"]
+
+[[stages.structural_repair.controls]]
+key = "notes"
+label = "Guidance"
+source = "stage"
+widget = "label"
+tier = "simple"
+help = "Why this repair recommendation was chosen."
+
+[stages.cleanup]
+rail_label = "Cleanup"
+description = "Reduce block noise and light compression damage without smearing faces or flattening detail. The default stance stays conservative on purpose."
+summary_template = "{mode}"
+simple_section_title = "Cleanup Plan"
+advanced_section_title = "Advanced Cleanup"
+
+[[stages.cleanup.controls]]
+key = "mode"
+label = "Cleanup Mode"
+source = "stage"
+widget = "combo"
+tier = "simple"
+help = "Pick how much cleanup to apply. Conservative stays safest by default, but you can go lighter or stronger when the source needs it."
+options = ["preserve_source", "light_cleanup", "balanced_cleanup"]
+
+[[stages.cleanup.controls]]
+key = "notes"
+label = "Guidance"
+source = "stage"
+widget = "label"
+tier = "simple"
+help = "Why this cleanup recommendation was chosen."
+
+[stages.upscale]
+rail_label = "Upscale"
+description = "Set the target size and keep the upscale honest. The output should look cleaner and more stable, not waxy or over-sharpened."
+summary_template = "{mode} -> {width}x{height}"
+simple_section_title = "Output Target"
+advanced_section_title = "Advanced Upscale"
+
+[[stages.upscale.controls]]
+key = "width"
+label = "Target Width"
+source = "output_policy"
+widget = "int"
+tier = "simple"
+help = "Final output width for the batch."
+minimum = 640
+maximum = 3840
+step = 16
+
+[[stages.upscale.controls]]
+key = "height"
+label = "Target Height"
+source = "output_policy"
+widget = "int"
+tier = "simple"
+help = "Final output height for the batch."
+minimum = 480
+maximum = 2160
+step = 16
+
+[[stages.upscale.controls]]
+key = "mode"
+label = "Upscale Strategy"
+source = "stage"
+widget = "combo"
+tier = "simple"
+help = "Choose the upscale stance. Faithful Resize is safest, Conservative ML is the default, and Detail Recovery is the stronger option."
+options = ["faithful_resize", "conservative_live_action", "detail_recovery_live_action"]
+
+[[stages.upscale.controls]]
+key = "notes"
+label = "Guidance"
+source = "stage"
+widget = "label"
+tier = "advanced"
+help = "Warnings and recommendation notes for the current upscale preset."
+
+[stages.encode]
+rail_label = "Encode"
+description = "Choose the delivery container and keep non-video streams preserved wherever the runtime can do it cleanly."
+summary_template = "{encode_profile_label} -> {container_label}"
+simple_section_title = "Delivery"
+advanced_section_title = "Advanced Encode"
+
+[[stages.encode.controls]]
+key = "encode_profile_id"
+label = "Delivery Profile"
+source = "output_policy"
+widget = "combo"
+tier = "simple"
+help = "Choose a conservative delivery preset first. This is the easiest way to control size, compatibility, and stream behavior without hand-tuning every encode field."
+
+[[stages.encode.controls]]
+key = "container"
+label = "Output Container"
+source = "output_policy"
+widget = "combo"
+tier = "simple"
+help = "Pick the final delivery container. MKV is the most preservation-friendly default, MP4 is the compatibility lane, and MOV is available for manual workflows."
+
+[[stages.encode.controls]]
+key = "video_codec"
+label = "Video Codec"
+source = "output_policy"
+widget = "combo"
+tier = "advanced"
+help = "Choose the video codec directly when you need to move away from the preset. H.265 is the size-conscious archive default; H.264 is the wider-compatibility option."
+options = ["libx265", "libx264"]
+
+[[stages.encode.controls]]
+key = "video_preset"
+label = "Encoder Preset"
+source = "output_policy"
+widget = "combo"
+tier = "advanced"
+help = "Slower presets usually trade more encode time for smaller files or better compression efficiency."
+options = ["medium", "slow", "slower", "veryfast"]
+
+[[stages.encode.controls]]
+key = "video_crf"
+label = "Quality (CRF)"
+source = "output_policy"
+widget = "int"
+tier = "advanced"
+help = "Lower CRF means larger files and higher quality. Higher CRF means smaller files. Stay conservative unless you have a reason to push harder."
+minimum = 10
+maximum = 32
+step = 1
+
+[[stages.encode.controls]]
+key = "video_pixel_format"
+label = "Pixel Format"
+source = "output_policy"
+widget = "combo"
+tier = "advanced"
+help = "10-bit is the archive-friendly default for cleaner gradients and fewer banding problems. 8-bit is the broader compatibility lane."
+options = ["yuv420p10le", "yuv420p"]
+
+[[stages.encode.controls]]
+key = "audio_codec"
+label = "Audio Codec"
+source = "output_policy"
+widget = "combo"
+tier = "advanced"
+help = "Copy keeps source audio untouched. AAC is the lighter compatibility option when you want a smaller or more broadly playable file."
+options = ["copy", "aac"]
+
+[[stages.encode.controls]]
+key = "audio_bitrate_kbps"
+label = "Audio Bitrate (kbps)"
+source = "output_policy"
+widget = "int"
+tier = "advanced"
+help = "Used when audio is transcoded instead of copied."
+minimum = 96
+maximum = 640
+step = 32
+
+[[stages.encode.controls]]
+key = "subtitle_codec"
+label = "Subtitle Codec"
+source = "output_policy"
+widget = "combo"
+tier = "advanced"
+help = "Copy preserves subtitles when the container supports them directly. mov_text is the safer MP4/MOV text-subtitle lane. None drops subtitle streams."
+options = ["copy", "mov_text", "none"]
+
+[[stages.encode.controls]]
+key = "preserve_chapters"
+label = "Preserve Chapters"
+source = "output_policy"
+widget = "bool"
+tier = "advanced"
+help = "Keep chapter markers in the final output whenever the container and runtime can preserve them."

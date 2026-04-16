@@ -1,0 +1,27 @@
+[registry]
+custom_model_glob_patterns = ["*.onnx", "*.pth", "*.pt", "*.bin", "*.engine"]
+
+[[families]]
+id = "real_esrgan_general"
+label = "Real-ESRGAN General"
+kind = "live_action"
+default = true
+
+[[families]]
+id = "dpir_cleanup"
+label = "DPIR Cleanup"
+kind = "cleanup"
+default = true
+
+[[families]]
+id = "scunet_cleanup"
+label = "SCUNet Cleanup"
+kind = "cleanup"
+default = false
+
+[[families]]
+id = "real_cugan"
+label = "Real-CUGAN"
+kind = "anime"
+default = false
+

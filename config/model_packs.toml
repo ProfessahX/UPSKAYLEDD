@@ -1,0 +1,23 @@
+[[packs]]
+id = "dpir_cleanup"
+label = "DPIR Cleanup Models"
+url = "https://github.com/AmusementClub/vs-mlrt/releases/download/model-20211209/dpir_v3.7z"
+archive_format = "7z"
+expected_paths = [
+  "models/dpir/drunet_color.onnx",
+  "models/dpir/drunet_deblocking_color.onnx",
+]
+recommended = true
+size_hint_mb = 460
+
+[[packs]]
+id = "swinir_live_action"
+label = "SwinIR Live-Action Upscale Models"
+url = "https://github.com/AmusementClub/vs-mlrt/releases/download/external-models/swinir_v1.7z"
+archive_format = "7z"
+expected_paths = [
+  "models/swinir/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x2_PSNR.onnx",
+  "models/swinir/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_PSNR.onnx",
+]
+recommended = false
+size_hint_mb = 1109

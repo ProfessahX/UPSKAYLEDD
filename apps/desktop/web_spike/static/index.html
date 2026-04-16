@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UPSKAYLEDD Web Spike</title>
+  <style>
+    :root {
+      --bg: #f6f1e8;
+      --panel: rgba(255, 255, 255, 0.82);
+      --ink: #1f2933;
+      --muted: #5b6670;
+      --accent: #b64f1d;
+      --accent-soft: #f1d0bd;
+      --line: rgba(31, 41, 51, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(182, 79, 29, 0.16), transparent 26rem),
+        linear-gradient(145deg, #faf6ef, #efe7db 58%, #e8dfd0);
+    }
+
+    .shell {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .hero {
+      margin-bottom: 18px;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 10px 0 8px;
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      line-height: 0.95;
+    }
+
+    .subtitle {
+      max-width: 58rem;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 300px 1fr 420px;
+      gap: 18px;
+      min-height: 70vh;
+    }
+
+    .panel {
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 20px;
+      box-shadow: 0 18px 48px rgba(50, 43, 34, 0.08);
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .preview {
+      min-height: 100%;
+      border-radius: 18px;
+      border: 1px dashed rgba(31, 41, 51, 0.16);
+      background:
+        linear-gradient(180deg, rgba(182, 79, 29, 0.1), rgba(255, 255, 255, 0.55)),
+        repeating-linear-gradient(
+          135deg,
+          transparent,
+          transparent 20px,
+          rgba(182, 79, 29, 0.06) 20px,
+          rgba(182, 79, 29, 0.06) 40px
+        );
+      color: var(--muted);
+      padding: 24px;
+      text-align: center;
+    }
+
+    .preview video {
+      width: 100%;
+      max-height: 420px;
+      border-radius: 16px;
+      background: #0f1720;
+    }
+
+    .button-row {
+      display: grid;
+      gap: 10px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 16px;
+      font: inherit;
+      font-weight: 700;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #2f4858;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      margin: 0 8px 8px 0;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #7d3310;
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: #24303b;
+    }
+
+    @media (max-width: 1100px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="eyebrow">UPSKAYLEDD Decision Spike</div>
+      <h1>Python Core, Thin Web Shell</h1>
+      <p class="subtitle">
+        This spike keeps the engine in Python and uses a browser surface only for layout, controls, and review state.
+        The point is not polish yet. The point is proving the contract boundary.
+      </p>
+    </section>
+
+    <section class="workspace">
+      <aside class="panel">
+        <h2>Control Rail</h2>
+        <div class="button-row">
+          <button id="doctorBtn">Load Doctor Report</button>
+          <button id="packsBtn" class="secondary">Load Model Packs</button>
+          <button id="criteriaBtn">Load Shell Criteria</button>
+        </div>
+        <div style="height: 18px;"></div>
+        <label for="sourcePath"><strong>Preview source</strong></label>
+        <input id="sourcePath" type="text" placeholder="Z:\media\legacy_episode_sample.mkv" style="width: 100%; margin: 8px 0 10px; border-radius: 14px; border: 1px solid var(--line); padding: 12px 14px; font: inherit;">
+        <label for="stageSelect"><strong>Stage</strong></label>
+        <select id="stageSelect" style="width: 100%; margin: 8px 0 12px; border-radius: 14px; border: 1px solid var(--line); padding: 12px 14px; font: inherit;">
+          <option value="cleanup">cleanup</option>
+          <option value="upscale">upscale</option>
+        </select>
+        <button id="previewBtn">Generate Exact Preview Metadata</button>
+        <p class="subtitle">
+          The shell is intentionally thin. It should orchestrate views and state, not own media processing or queue logic.
+        </p>
+      </aside>
+
+      <section class="panel">
+        <h2>Preview Surface</h2>
+        <div class="preview">
+          <video id="previewVideo" controls muted playsinline></video>
+          <p id="previewStatus">Preview playback is idle. Generate preview metadata from the control rail to load the processed clip here.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Service Output</h2>
+        <div id="chips"></div>
+        <pre id="output">Click a control to load JSON from the Python service layer.</pre>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const output = document.getElementById("output");
+    const chips = document.getElementById("chips");
+    const previewVideo = document.getElementById("previewVideo");
+    const previewStatus = document.getElementById("previewStatus");
+
+    async function load(endpoint) {
+      const response = await fetch(endpoint);
+      const payload = await response.json();
+      output.textContent = JSON.stringify(payload, null, 2);
+      renderChips(payload);
+    }
+
+    async function generatePreview() {
+      const sourcePath = document.getElementById("sourcePath").value.trim();
+      const stageId = document.getElementById("stageSelect").value;
+      if (!sourcePath) {
+        output.textContent = "Provide a source path before generating preview metadata.";
+        return;
+      }
+      const stageSettings = stageId === "upscale"
+        ? { target_width: 1280, target_height: 720 }
+        : {};
+      const response = await fetch("/api/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_path: sourcePath, stage_id: stageId, stage_settings: stageSettings })
+      });
+      const payload = await response.json();
+      output.textContent = JSON.stringify(payload, null, 2);
+      renderChips(payload);
+      if (payload.preview_urls?.processed) {
+        previewVideo.src = payload.preview_urls.processed;
+        previewVideo.play().catch(() => {});
+        previewStatus.textContent = `Loaded processed preview clip for ${stageId}.`;
+      } else {
+        previewVideo.removeAttribute("src");
+        previewVideo.load();
+        previewStatus.textContent = "Preview metadata was created, but no processed clip was returned.";
+      }
+    }
+
+    function renderChips(payload) {
+      chips.innerHTML = "";
+      const labels = [];
+      if (payload.checks) {
+        labels.push(...payload.checks.filter(item => item.status === "healthy").slice(0, 4).map(item => item.name));
+      }
+      if (payload.packs) {
+        labels.push(...payload.packs.filter(item => item.installed).map(item => item.id));
+      }
+      if (payload.criteria) {
+        labels.push(...payload.criteria.slice(0, 3));
+      }
+      labels.forEach(label => {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = label;
+        chips.appendChild(chip);
+      });
+    }
+
+    document.getElementById("doctorBtn").addEventListener("click", () => load("/api/doctor"));
+    document.getElementById("packsBtn").addEventListener("click", () => load("/api/model-packs"));
+    document.getElementById("criteriaBtn").addEventListener("click", () => load("/api/shell-criteria"));
+    document.getElementById("previewBtn").addEventListener("click", generatePreview);
+  </script>
+</body>
+</html>

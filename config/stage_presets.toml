@@ -1,0 +1,63 @@
+[stages.inspect.default]
+operation = "noop"
+
+[stages.structural_repair.ivtc_or_deinterlace]
+operation = "noop"
+warning = "Cadence-aware structural repair is not implemented yet; review this stage before long-form interlaced jobs."
+
+[stages.structural_repair.pal_cadence_check]
+operation = "noop"
+warning = "PAL cadence check is advisory only in the current runner."
+
+[stages.cleanup.light_cleanup]
+operation = "dpir"
+convert_to_rgbs = true
+model_family = "dpir"
+model_name = "drunet_deblocking_color"
+strength = 5.0
+output_format = "RGBS"
+
+[stages.cleanup.preserve_source]
+operation = "noop"
+warning = "Cleanup is disabled for this preset; use it when you want a pure structural-repair or upscale check."
+
+[stages.cleanup.balanced_cleanup]
+operation = "dpir"
+convert_to_rgbs = true
+model_family = "dpir"
+model_name = "drunet_deblocking_color"
+strength = 8.0
+output_format = "RGBS"
+warning = "Balanced cleanup is stronger than the default and should be validated on faces and dark scenes before a long batch."
+
+[stages.upscale.faithful_resize]
+operation = "resize"
+resize_kernel = "spline36"
+warning = "Faithful resize avoids ML enhancement and is the safest baseline when you want a clean upscale with minimal hallucination risk."
+
+[stages.upscale.conservative_live_action]
+operation = "swinir"
+convert_to_rgbs = true
+model_family = "swinir"
+model_name = "realSR_BSRGAN_DFO_s64w8_SwinIR_M_x2_PSNR"
+resize_kernel = "spline36"
+scale = 2.0
+warning = "Live-action ML upscale is optional; the default preset uses a conservative resizer until a curated model pack is installed."
+
+[stages.upscale.detail_recovery_live_action]
+operation = "swinir"
+convert_to_rgbs = true
+model_family = "swinir"
+model_name = "realSR_BSRGAN_DFO_s64w8_SwinIR_M_x4_PSNR"
+resize_kernel = "lanczos"
+scale = 4.0
+warning = "Detail Recovery is the stronger live-action preset. Validate it on motion, skin, and edges before trusting a long batch."
+
+[stages.encode.hevc_transparent]
+operation = "encode_passthrough"
+
+[stages.encode.hevc_balanced]
+operation = "encode_passthrough"
+
+[stages.encode.container_safe]
+operation = "encode_passthrough"

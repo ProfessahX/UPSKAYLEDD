@@ -1,0 +1,17 @@
+[preview]
+default_upscale = "scale=iw*2:ih*2:flags=lanczos"
+
+[execution]
+default_upscale = "scale={width}:{height}:flags=lanczos"
+
+[stage_filters.structural_repair]
+preview = "yadif=mode=send_frame:deint=interlaced"
+execution = "yadif=mode=send_frame:deint=interlaced"
+
+[stage_filters.cleanup]
+preview = "hqdn3d=1.5:1.5:6:6"
+execution = "hqdn3d=1.5:1.5:6:6"
+
+[stage_filters.upscale]
+preview = "scale={width}:{height}:flags=lanczos"
+execution = "scale={width}:{height}:flags=lanczos"

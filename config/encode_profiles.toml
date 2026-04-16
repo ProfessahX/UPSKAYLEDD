@@ -1,0 +1,42 @@
+[defaults]
+default_profile_id = "hevc_balanced_archive"
+
+[[profiles]]
+id = "hevc_balanced_archive"
+label = "HEVC Balanced Archive"
+description = "Default archive-friendly delivery that should usually land smaller than common DVD-remux style sources without getting reckless."
+container = "mkv"
+video_codec = "libx265"
+video_preset = "medium"
+video_crf = 20
+video_pixel_format = "yuv420p10le"
+audio_codec = "copy"
+subtitle_codec = "copy"
+preserve_chapters = true
+
+[[profiles]]
+id = "hevc_smaller_archive"
+label = "HEVC Smaller File"
+description = "Leans harder toward smaller output size while staying conservative enough for restoration review copies and batch archives."
+container = "mkv"
+video_codec = "libx265"
+video_preset = "slow"
+video_crf = 22
+video_pixel_format = "yuv420p10le"
+audio_codec = "copy"
+subtitle_codec = "copy"
+preserve_chapters = true
+
+[[profiles]]
+id = "h264_compatibility_mp4"
+label = "H.264 Compatibility MP4"
+description = "Broader playback compatibility with MP4 delivery, AAC audio, and text-friendly subtitle conversion where possible, but this lane may produce larger files than the archive-focused HEVC presets."
+container = "mp4"
+video_codec = "libx264"
+video_preset = "slow"
+video_crf = 18
+video_pixel_format = "yuv420p"
+audio_codec = "aac"
+audio_bitrate_kbps = 192
+subtitle_codec = "mov_text"
+preserve_chapters = true

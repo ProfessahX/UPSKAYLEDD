@@ -1,0 +1,79 @@
+[app]
+name = "UPSKAYLEDD"
+default_container = "mkv"
+default_encode_profile_id = "hevc_balanced_archive"
+default_output_root = "runtime/output"
+output_layout = "preserve_relative"
+output_name_template = "{stem}"
+output_collision_template = "__dup{index}"
+state_db_path = "runtime/state/upskayledd.sqlite3"
+preview_cache_dir = "runtime/cache/previews"
+project_history_scope = "global"
+max_recent_targets = 6
+supported_extensions = [
+  ".3gp",
+  ".avi",
+  ".asf",
+  ".dv",
+  ".flv",
+  ".m2p",
+  ".m2t",
+  ".m2ts",
+  ".m2v",
+  ".m4v",
+  ".mkv",
+  ".mov",
+  ".mp4",
+  ".mpeg",
+  ".mpg",
+  ".mts",
+  ".mxf",
+  ".ogm",
+  ".ogv",
+  ".rm",
+  ".rmvb",
+  ".ts",
+  ".vob",
+  ".webm",
+  ".wmv",
+  ".y4m",
+]
+probe_unknown_extensions = true
+probe_extensionless_files = true
+supported_output_containers = [
+  "mkv",
+  "mp4",
+  "mov",
+]
+
+[compatibility]
+supported_previous_minor = 1
+
+[inspector]
+manual_review_threshold = 0.6
+ntsc_fps = 29.97
+ntsc_double_fps = 59.94
+film_fps = 23.976
+pal_fps = 25.0
+sd_width_threshold = 720
+sd_height_threshold = 576
+
+[preview]
+default_mode = "slider_wipe"
+default_duration_seconds = 3.0
+default_fidelity_mode = "approximate"
+
+[queue]
+restart_partial_encode = true
+
+[support]
+bundle_output_dir = "runtime/support"
+include_full_paths = false
+max_recent_jobs = 10
+
+[paths]
+model_dirs = [
+  "runtime/models",
+  "%LOCALAPPDATA%/UPSKAYLEDD/models",
+  "$HOME/.local/share/upskayledd/models",
+]

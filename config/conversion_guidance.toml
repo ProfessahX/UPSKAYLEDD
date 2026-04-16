@@ -1,0 +1,21 @@
+[thresholds]
+oversized_ratio = 1.05
+smaller_ratio = 0.95
+much_smaller_ratio = 0.70
+fps_change_tolerance = 0.35
+
+[profiles]
+compatibility_ids = ["h264_compatibility_mp4"]
+
+[messages]
+oversized = "Output grew larger than the source sample. If storage matters, try an HEVC archive preset or raise CRF slightly."
+smaller = "Output landed smaller than the source sample with the current delivery settings."
+much_smaller = "Output shrank aggressively relative to the source sample. Spot-check fine detail before sending a whole batch."
+compatibility = "Compatibility delivery favors easier playback and can trade size for device support."
+resolution_up_smaller = "The output resolution increased while file size still dropped, which usually means the newer codec is doing most of the compression work."
+audio_transcode = "Audio changed from {from_codecs} to {to_codecs}; this usually improves compatibility rather than preserving bit-perfect audio."
+subtitle_transcode = "Subtitle format changed from {from_codecs} to {to_codecs} for the selected container."
+subtitle_dropped = "Some subtitle streams were not preserved in the output; review the target container and subtitle codec choices if subtitle retention matters."
+chapters_dropped = "Chapters are missing in the output; keep MKV plus chapter preservation enabled if navigation matters."
+fps_changed = "Frame rate changed from {from_fps} to {to_fps}; verify cadence and motion before running a long batch."
+mp4_subtitle_risk = "MP4 delivery may drop subtitle codecs that do not map cleanly to text-based MP4 subtitles ({codecs}); keep MKV if subtitle retention matters."

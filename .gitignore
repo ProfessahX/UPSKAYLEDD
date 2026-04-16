@@ -1,0 +1,119 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# --- Tooling / test caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# --- Build / packaging ---
+build/
+dist/
+site/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+*.spec
+!packaging/pyinstaller/upskayledd-desktop.spec
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs / local app state ---
+logs/
+log/
+runtime/
+state/
+tmp/
+temp/
+cache/
+previews/
+outputs/
+exports/
+workspace/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Keep empty placeholders if you use them
+!.gitkeep
+
+# --- Model weights / runtimes / large artifacts ---
+models/
+weights/
+checkpoints/
+*.onnx
+*.engine
+*.trt
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+
+# --- Large generated media ---
+*.mkv
+*.mp4
+*.avi
+*.mov
+*.m4v
+*.ts
+*.m2ts
+*.vob
+*.y4m
+*.wav
+*.flac
+
+# --- Archives ---
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.psd
+
+# --- Local docs / planning artifacts ---
+docs/
+
+# --- Local handoff / source assets that should stay out of the public repo ---
+/UPSKAYLEDD_handoff_design.md
+/UPSKAYLEDD_ui_ux_design_flow.md
+/upskayledd_repo_starter_apache.zip
+/REPO_SETUP_CHECKLIST.md
+/alt_text.png
+/Shitposting_pitch.png
+/Shitposting_pitch.psd
+/icon.psd
+
+# --- Environment files ---
+.env
+.env.*
+!.env.example

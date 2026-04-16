@@ -1,0 +1,88 @@
+[[profiles]]
+id = "sd_live_action_ntsc"
+label = "SD Live-Action NTSC"
+source_classes = ["sd_live_action_ntsc", "sd_live_action_unknown_sd"]
+default_output_width = 1440
+default_output_height = 1080
+display_aspect_ratio = "4:3"
+default_container = "mkv"
+default_stages = ["inspect", "structural_repair", "cleanup", "upscale", "encode"]
+risky_stages = ["upscale"]
+
+[profiles.stage_defaults.structural_repair]
+mode = "ivtc_or_deinterlace"
+notes = "Prefer cadence correction before cleanup or upscale."
+
+[profiles.stage_defaults.cleanup]
+mode = "light_cleanup"
+notes = "Bias toward deblock and conservative denoise."
+
+[profiles.stage_defaults.upscale]
+mode = "conservative_live_action"
+notes = "Prefer natural detail over aggressive enhancement."
+
+[profiles.stage_defaults.encode]
+mode = "hevc_transparent"
+notes = "Passthrough non-video streams when possible."
+
+[[profiles]]
+id = "sd_live_action_pal"
+label = "SD Live-Action PAL"
+source_classes = ["sd_live_action_pal"]
+default_output_width = 1440
+default_output_height = 1080
+display_aspect_ratio = "4:3"
+default_container = "mkv"
+default_stages = ["inspect", "structural_repair", "cleanup", "upscale", "encode"]
+risky_stages = ["upscale"]
+
+[profiles.stage_defaults.structural_repair]
+mode = "pal_cadence_check"
+notes = "Preserve frame-rate intent and avoid NTSC assumptions."
+
+[profiles.stage_defaults.cleanup]
+mode = "light_cleanup"
+notes = "Bias toward gentle cleanup."
+
+[profiles.stage_defaults.upscale]
+mode = "conservative_live_action"
+notes = "Prefer natural detail over aggressive enhancement."
+
+[profiles.stage_defaults.encode]
+mode = "hevc_transparent"
+notes = "Passthrough non-video streams when possible."
+
+[[profiles]]
+id = "progressive_hd_cleanup"
+label = "Progressive HD Cleanup"
+source_classes = ["progressive_hd_cleanup"]
+default_output_width = 1920
+default_output_height = 1080
+display_aspect_ratio = "16:9"
+default_container = "mkv"
+default_stages = ["inspect", "cleanup", "encode"]
+risky_stages = []
+
+[profiles.stage_defaults.cleanup]
+mode = "light_cleanup"
+notes = "No structural repair by default."
+
+[profiles.stage_defaults.encode]
+mode = "hevc_balanced"
+notes = "Favor clean remux/transcode."
+
+[[profiles]]
+id = "safe_review_required"
+label = "Safe Manual Review"
+source_classes = ["unknown", "manual_review"]
+default_output_width = 1440
+default_output_height = 1080
+display_aspect_ratio = "source"
+default_container = "mkv"
+default_stages = ["inspect", "encode"]
+risky_stages = ["structural_repair", "cleanup", "upscale"]
+
+[profiles.stage_defaults.encode]
+mode = "container_safe"
+notes = "Keep output conservative until the source is reviewed."
+

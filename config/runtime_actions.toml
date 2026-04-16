@@ -1,0 +1,65 @@
+[runtime]
+max_actions = 5
+
+[checks.ffmpeg]
+title = "Install FFmpeg tools"
+category = "runtime"
+priority = 120
+missing = "Install FFmpeg and ffprobe, then restart UPSKAYLEDD before trusting previews or runs."
+degraded = "Review the FFmpeg install and PATH before running a long batch."
+
+[checks.ffprobe]
+title = "Install ffprobe"
+category = "runtime"
+priority = 118
+missing = "Install ffprobe alongside FFmpeg so UPSKAYLEDD can inspect sources accurately."
+degraded = "Review the FFmpeg install and PATH before trusting source analysis."
+
+[checks.vapoursynth]
+title = "Install VapourSynth"
+category = "runtime"
+priority = 115
+missing = "Install VapourSynth before expecting the canonical restoration pipeline to execute."
+degraded = "Review the VapourSynth install before trusting the canonical pipeline."
+
+[checks.vsmlrt]
+title = "Install vs-mlrt"
+category = "runtime"
+priority = 112
+missing = "Install vs-mlrt before expecting ML-backed cleanup or upscale stages to run as recommended."
+degraded = "Review the vs-mlrt runtime before trusting ML-backed stage behavior."
+
+[checks.ffms2]
+title = "Install the FFMS2 source plugin"
+category = "runtime"
+priority = 108
+missing = "Install the FFMS2 VapourSynth source plugin so canonical runs can load source footage reliably."
+degraded = "Review the FFMS2 plugin before trusting canonical source loading."
+
+[checks.vspipe]
+title = "Install vspipe"
+category = "runtime"
+priority = 106
+missing = "Install vspipe so VapourSynth can hand frames off to FFmpeg during canonical runs."
+degraded = "Review the vspipe install before trusting canonical execution."
+
+[checks.preview_cache_dir]
+title = "Fix preview cache permissions"
+category = "paths"
+priority = 104
+missing = "Make the preview cache directory writable before generating previews."
+degraded = "Review preview-cache access before trusting repeated preview work."
+
+[checks.output_root]
+title = "Fix output directory permissions"
+category = "paths"
+priority = 102
+missing = "Make the default output directory writable before queueing a long run."
+degraded = "Review output-directory access before trusting long batch runs."
+
+[packs.dpir_cleanup]
+title = "Install the cleanup model pack"
+category = "model_pack"
+priority = 80
+missing = "Install the curated DPIR cleanup pack so the default cleanup stage can run as recommended."
+only_when_recommended = true

@@ -1,0 +1,58 @@
+[window]
+title = "UPSKAYLEDD"
+width = 1560
+height = 920
+minimum_width = 1280
+minimum_height = 780
+
+[behavior]
+session_state_key = "desktop_ui_state"
+default_page = "ingest"
+default_simple_mode = true
+default_queue_collapsed = false
+dashboard_refresh_seconds = 5
+auto_play_preview = false
+
+[assets]
+app_icon = "icon.png"
+repo_header = "LOGO-HEADER.png"
+hero_graphic = "Shitposting_pitch_refined.png"
+
+[layout]
+stage_rail_width = 220
+detail_panel_width = 376
+preview_panel_width = 820
+queue_bar_expanded_height = 240
+brand_panel_width = 360
+brand_graphic_height = 280
+
+[preview]
+default_stage = "cleanup"
+default_comparison_mode = "slider_wipe"
+default_fidelity_mode = "exact"
+default_sample_start_seconds = 0.0
+default_sample_duration_seconds = 3.0
+comparison_modes = ["slider_wipe", "side_by_side", "ab_toggle"]
+fidelity_modes = ["exact", "approximate"]
+upscale_preview_width = 1440
+upscale_preview_height = 1080
+
+[theme]
+font_family = "Segoe UI Variable"
+display_font_family = "Segoe UI Semibold"
+accent_color = "#d7a96b"
+accent_soft = "#3f2f1a"
+background_start = "#0b0f15"
+background_end = "#121720"
+surface_color = "#151b24"
+surface_alt = "#11161f"
+panel_color = "#171e29"
+panel_raised = "#1d2633"
+ink_color = "#edf2f7"
+muted_color = "#9aa8b7"
+line_color = "#283243"
+preview_background = "#05070b"
+success_color = "#4bbf8b"
+warning_color = "#d8a55a"
+danger_color = "#dd6b6b"
+info_color = "#79aee8"
