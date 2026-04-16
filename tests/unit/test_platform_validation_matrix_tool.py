@@ -59,6 +59,53 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         self.assertTrue(any("Linux (WSL) still has missing runtime checks." == item for item in watch_items))
         self.assertTrue(any("Native Windows and Linux-side WSL currently differ in runtime readiness." == item for item in watch_items))
 
+    def test_missing_checks_without_actions_still_surface_watch_item(self) -> None:
+        module = _load_module()
+        context = module.summarize_context(
+            "linux_wsl",
+            "Linux (WSL)",
+            {
+                "platform_summary": "Linux (WSL) · 6.6.87.2-microsoft-standard-WSL2 · x86_64 · Python 3.12.3",
+                "checks": [{"name": "vspipe", "status": "missing"}],
+                "warnings": [],
+                "path_rules": [],
+            },
+            {"actions": []},
+        )
+
+        watch_items = module.build_watch_items([context])
+
+        self.assertEqual(context["health"], "watch")
+        self.assertIn("Linux (WSL) still has missing runtime checks.", watch_items)
+
+    def test_unavailable_native_context_still_participates_in_watch_items(self) -> None:
+        module = _load_module()
+        native = module.summarize_context(
+            "windows_native",
+            "Windows (native)",
+            None,
+            None,
+            available=False,
+            error="native failure",
+        )
+        wsl = module.summarize_context(
+            "linux_wsl",
+            "Linux (WSL)",
+            {
+                "platform_summary": "Linux (WSL) · 6.6.87.2-microsoft-standard-WSL2 · x86_64 · Python 3.12.3",
+                "checks": [{"name": "ffmpeg", "status": "healthy"}],
+                "warnings": [],
+                "path_rules": [],
+            },
+            {"actions": []},
+        )
+
+        watch_items = module.build_watch_items([native, wsl])
+
+        self.assertEqual(native["health"], "unavailable")
+        self.assertIn("Windows (native) validation could not be collected automatically.", watch_items)
+        self.assertTrue(any("Native Windows and Linux-side WSL currently differ in runtime readiness." == item for item in watch_items))
+
 
 if __name__ == "__main__":
     unittest.main()

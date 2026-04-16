@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,9 +15,12 @@ SRC_DIR = ROOT / "src"
 
 
 def windows_to_wsl_path(path: Path) -> str:
-    raw = str(path.resolve()).replace("\\", "/")
-    if len(raw) >= 3 and raw[1:3] == ":/":
-        return f"/mnt/{raw[0].lower()}{raw[2:]}"
+    raw = str(path).replace("\\", "/")
+    windows_path = PureWindowsPath(raw)
+    drive = windows_path.drive.rstrip(":")
+    if drive:
+        tail = "/".join(windows_path.parts[1:])
+        return f"/mnt/{drive.lower()}/{tail}" if tail else f"/mnt/{drive.lower()}"
     return raw
 
 
@@ -39,7 +43,7 @@ def summarize_context(
         health = "unavailable"
     elif actions:
         health = "attention"
-    elif doctor.get("warnings"):
+    elif missing_checks or degraded_checks or doctor.get("warnings"):
         health = "watch"
     else:
         health = "ready"
@@ -69,7 +73,7 @@ def build_watch_items(contexts: list[dict[str, Any]]) -> list[str]:
         if not context.get("available", True):
             items.append(f"{label} validation could not be collected automatically.")
             continue
-        if int(context.get("action_count", 0) or 0) > 0 and int(context.get("missing_check_count", 0) or 0) > 0:
+        if int(context.get("missing_check_count", 0) or 0) > 0:
             items.append(f"{label} still has missing runtime checks.")
         elif int(context.get("degraded_check_count", 0) or 0) > 0 and context.get("warnings"):
             items.append(f"{label} is usable but still carries degraded runtime checks.")
@@ -78,9 +82,8 @@ def build_watch_items(contexts: list[dict[str, Any]]) -> list[str]:
     if len(contexts) >= 2:
         native = next((item for item in contexts if item.get("context_id") == "windows_native"), None)
         wsl = next((item for item in contexts if item.get("context_id") == "linux_wsl"), None)
-        if native and wsl and native.get("platform_summary") and wsl.get("platform_summary"):
-            if native.get("health") != wsl.get("health"):
-                items.append("Native Windows and Linux-side WSL currently differ in runtime readiness.")
+        if native and wsl and native.get("health") != wsl.get("health"):
+            items.append("Native Windows and Linux-side WSL currently differ in runtime readiness.")
     if not items:
         items.append("Native and collected secondary runtime contexts look aligned enough for the current release-hardening pass.")
     return items
@@ -127,9 +130,9 @@ def _wsl_payload(repo_root: Path) -> dict[str, Any]:
         doctor_json_wsl = windows_to_wsl_path(doctor_json)
         setup_json_wsl = windows_to_wsl_path(setup_json)
         command = (
-            f"cd {repo_root_wsl} && "
-            f"PYTHONPATH=src python3 -m upskayledd doctor --json-output {doctor_json_wsl} >/dev/null && "
-            f"PYTHONPATH=src python3 -m upskayledd setup-plan --json-output {setup_json_wsl} >/dev/null"
+            f"cd {shlex.quote(repo_root_wsl)} && "
+            f"PYTHONPATH=src python3 -m upskayledd doctor --json-output {shlex.quote(doctor_json_wsl)} >/dev/null && "
+            f"PYTHONPATH=src python3 -m upskayledd setup-plan --json-output {shlex.quote(setup_json_wsl)} >/dev/null"
         )
         subprocess.run(
             [wsl, "bash", "-lc", command],
@@ -145,15 +148,28 @@ def _wsl_payload(repo_root: Path) -> dict[str, Any]:
 
 def collect_contexts(repo_root: Path) -> list[dict[str, Any]]:
     contexts: list[dict[str, Any]] = []
-    native_payload = _native_payload(repo_root)
-    contexts.append(
-        summarize_context(
-            "windows_native",
-            "Windows (native)",
-            native_payload["doctor"],
-            native_payload["setup_plan"],
+    try:
+        native_payload = _native_payload(repo_root)
+    except Exception as exc:  # noqa: BLE001
+        contexts.append(
+            summarize_context(
+                "windows_native",
+                "Windows (native)",
+                None,
+                None,
+                available=False,
+                error=str(exc),
+            )
         )
-    )
+    else:
+        contexts.append(
+            summarize_context(
+                "windows_native",
+                "Windows (native)",
+                native_payload["doctor"],
+                native_payload["setup_plan"],
+            )
+        )
     try:
         wsl_payload = _wsl_payload(repo_root)
     except Exception as exc:  # noqa: BLE001
