@@ -2287,6 +2287,7 @@ class DesktopMainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.workspace_page.preview_compare.clear_preview()
         self.dashboard_page.review_compare.clear_preview()
+        self.controller.shutdown()
         super().closeEvent(event)
 
 

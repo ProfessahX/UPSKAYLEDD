@@ -352,6 +352,9 @@ class DesktopController(QObject):
         self.refresh_dashboard()
         self.set_page("dashboard")
 
+    def shutdown(self, timeout_msecs: int = 5000) -> None:
+        self.thread_pool.waitForDone(timeout_msecs)
+
     def _dispatch_run(self, *, execute: bool, execute_degraded: bool) -> None:
         if self.current_project is None:
             self.errorRaised.emit("Analyze a source before queueing or running it.")

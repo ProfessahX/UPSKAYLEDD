@@ -294,6 +294,83 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["canonical"]["subtitle_change_count"], 0)
         self.assertEqual(summary["canonical"]["stream_loss_count"], 0)
 
+    def test_summarize_validation_results_distinguishes_decode_aligned_mixed_groups(self) -> None:
+        module = _load_module()
+        summary = module.summarize_validation_results(
+            [
+                {
+                    "inspection": {
+                        "detected_source_class": "sd_live_action_ntsc",
+                        "recommended_profile_id": "sd_live_action_ntsc",
+                    },
+                    "output_policy": {
+                        "encode_profile_id": "hevc_balanced_archive",
+                    },
+                    "canonical_run": {
+                        "execution_mode": "vapoursynth_canonical",
+                        "size_summary": {"size_ratio": 0.8, "oversized_delivery": False},
+                        "media_metrics": {
+                            "comparison": {"subtitle_stream_delta": 0, "chapter_delta": 0},
+                            "input": {"video": {"avg_frame_rate_fps": 59.94}},
+                            "output": {
+                                "container_name": "matroska",
+                                "video": {
+                                    "avg_frame_rate_fps": 23.98,
+                                    "codec_name": "hevc",
+                                    "width": 1440,
+                                    "height": 1080,
+                                },
+                            },
+                        },
+                    },
+                    "sample_clip_cadence": {
+                        "probe_frame_rate_fps": 59.94,
+                        "decode_frame_rate_fps": 23.98,
+                    },
+                },
+                {
+                    "inspection": {
+                        "detected_source_class": "sd_live_action_ntsc",
+                        "recommended_profile_id": "sd_live_action_ntsc",
+                    },
+                    "output_policy": {
+                        "encode_profile_id": "hevc_balanced_archive",
+                    },
+                    "canonical_run": {
+                        "execution_mode": "vapoursynth_canonical",
+                        "size_summary": {"size_ratio": 0.82, "oversized_delivery": False},
+                        "media_metrics": {
+                            "comparison": {"subtitle_stream_delta": 0, "chapter_delta": 0},
+                            "input": {"video": {"avg_frame_rate_fps": 59.94}},
+                            "output": {
+                                "container_name": "matroska",
+                                "video": {
+                                    "avg_frame_rate_fps": 29.97,
+                                    "codec_name": "hevc",
+                                    "width": 1440,
+                                    "height": 1080,
+                                },
+                            },
+                        },
+                    },
+                    "sample_clip_cadence": {
+                        "probe_frame_rate_fps": 59.94,
+                        "decode_frame_rate_fps": 29.97,
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(summary["canonical"]["output_frame_rates"], {"23.98 fps": 1, "29.97 fps": 1})
+        self.assertEqual(summary["canonical"]["decode_frame_rates"], {"23.98 fps": 1, "29.97 fps": 1})
+        self.assertTrue(any("match the sampled decode cadence buckets" in item for item in summary["watch_items"]))
+        self.assertFalse(
+            any(
+                item == "Canonical sampled outputs landed in mixed frame-rate groups; verify whether batch cadence expectations actually match the sampled decode cadence before a long run."
+                for item in summary["watch_items"]
+            )
+        )
+
     def test_file_stats_reports_missing_and_existing_paths(self) -> None:
         module = _load_module()
         with tempfile.TemporaryDirectory() as temp_dir:

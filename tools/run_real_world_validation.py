@@ -763,9 +763,14 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             f"Sample metadata and ffms2 decode cadence disagreed on {canonical['decode_cadence_mismatch_count']}/{source_count} sampled source(s), so cadence warnings need decode-aware interpretation."
         )
     if len(canonical["output_frame_rates"]) > 1:
-        watch_items.append(
-            "Canonical sampled outputs landed in mixed frame-rate groups; verify whether batch cadence expectations actually match the sampled decode cadence before a long run."
-        )
+        if canonical["output_frame_rates"] == canonical["decode_frame_rates"]:
+            watch_items.append(
+                "Canonical sampled outputs landed in mixed frame-rate groups that match the sampled decode cadence buckets; verify whether the batch itself mixes cadence patterns before a long run."
+            )
+        else:
+            watch_items.append(
+                "Canonical sampled outputs landed in mixed frame-rate groups; verify whether batch cadence expectations actually match the sampled decode cadence before a long run."
+            )
     if canonical["oversized_delivery_count"] or degraded["oversized_delivery_count"]:
         watch_items.append(
             "At least one sampled delivery landed larger than its source clip. Review the chosen encode lane before scaling up."
