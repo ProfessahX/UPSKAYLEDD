@@ -607,7 +607,7 @@ def summarize_runtime_context(
 def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     items = list(results or [])
 
-    def summarize_mode(items: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    def summarize_mode(result_items: list[dict[str, Any]], key: str) -> dict[str, Any]:
         size_ratios: list[float] = []
         cadence_change_count = 0
         decode_cadence_mismatch_count = 0
@@ -619,19 +619,19 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
         output_containers: list[str] = []
         output_video_codecs: list[str] = []
         output_resolutions: list[str] = []
-        for item in items:
-            run = dict(item.get(key, {}))
+        for item in result_items:
+            run = dict(item.get(key) or {})
             if str(run.get("error", "")).strip():
                 errored_runs += 1
             elif run.get("execution_mode"):
                 completed_runs += 1
-            size_summary = dict(run.get("size_summary", {}))
+            size_summary = dict(run.get("size_summary") or {})
             size_ratio = _safe_float(size_summary.get("size_ratio"))
             if size_ratio is not None:
                 size_ratios.append(size_ratio)
             if size_summary.get("oversized_delivery"):
                 oversized_delivery_count += 1
-            media_metrics = dict(run.get("media_metrics", {}) or {})
+            media_metrics = dict(run.get("media_metrics") or {})
             comparison = dict(media_metrics.get("comparison", {}) or {})
             input_video = dict(dict(media_metrics.get("input", {}) or {}).get("video", {}) or {})
             output_video = dict(dict(media_metrics.get("output", {}) or {}).get("video", {}) or {})
@@ -655,9 +655,11 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
                 decode_cadence_mismatch_count += 1
             if input_fps is not None and output_fps is not None and abs(input_fps - output_fps) >= 0.5:
                 cadence_change_count += 1
-            if comparison.get("subtitle_codec_changed") or int(comparison.get("subtitle_stream_delta", 0) or 0) != 0:
+            subtitle_delta = _safe_int(comparison.get("subtitle_stream_delta")) or 0
+            chapter_delta = _safe_int(comparison.get("chapter_delta")) or 0
+            if comparison.get("subtitle_codec_changed") or subtitle_delta != 0:
                 subtitle_change_count += 1
-            if int(comparison.get("subtitle_stream_delta", 0) or 0) < 0 or int(comparison.get("chapter_delta", 0) or 0) < 0:
+            if subtitle_delta < 0 or chapter_delta < 0:
                 stream_loss_count += 1
         size_summary_payload: dict[str, Any] = {"count": len(size_ratios)}
         if size_ratios:

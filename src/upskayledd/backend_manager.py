@@ -23,6 +23,8 @@ class BackendManager:
 
     def doctor(self) -> DoctorReport:
         platform_context = detect_platform_context()
+        safe_platform_context = dict(platform_context)
+        safe_platform_context.pop("python_executable", None)
         checks = [
             DoctorCheck(
                 name=status.name,
@@ -47,7 +49,7 @@ class BackendManager:
             created_at=utc_now(),
             checks=checks,
             warnings=warnings,
-            platform_context=platform_context,
+            platform_context=safe_platform_context,
         )
 
     def choose_backend(self) -> BackendSelection:

@@ -470,15 +470,15 @@ def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
     defaults = _read_toml(resolved_config_dir / "defaults.toml")
     fallback_filters = _read_toml(resolved_config_dir / "fallback_filters.toml")
     app_defaults = defaults["app"]
-    default_encode_profile_id = app_defaults.get("default_encode_profile_id", "hevc_balanced_archive")
-    encode_config = _load_encode_profiles(resolved_config_dir, default_encode_profile_id)
+    configured_default_encode_profile_id = app_defaults.get("default_encode_profile_id", "hevc_balanced_archive")
+    encode_config = _load_encode_profiles(resolved_config_dir, configured_default_encode_profile_id)
 
     return AppConfig(
         config_dir=resolved_config_dir,
         app=AppSettings(
             name=app_defaults["name"],
             default_container=app_defaults["default_container"],
-            default_encode_profile_id=default_encode_profile_id,
+            default_encode_profile_id=encode_config.default_profile_id,
             default_output_root=app_defaults["default_output_root"],
             output_layout=app_defaults.get("output_layout", "preserve_relative"),
             output_name_template=app_defaults.get("output_name_template", "{stem}"),

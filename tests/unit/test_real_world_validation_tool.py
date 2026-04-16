@@ -272,6 +272,10 @@ class RealWorldValidationToolTests(unittest.TestCase):
                         "execution_mode": "vapoursynth_canonical",
                         "size_summary": {"size_ratio": "not-a-number", "oversized_delivery": False},
                         "media_metrics": {
+                            "comparison": {
+                                "subtitle_stream_delta": "oops",
+                                "chapter_delta": "still-oops",
+                            },
                             "input": {"video": {"avg_frame_rate_fps": "oops"}},
                             "output": {"video": {"avg_frame_rate_fps": "still-oops"}},
                         },
@@ -284,6 +288,8 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["source_count"], 1)
         self.assertEqual(summary["canonical"]["completed_runs"], 1)
         self.assertEqual(summary["canonical"]["size_ratio"]["count"], 0)
+        self.assertEqual(summary["canonical"]["subtitle_change_count"], 0)
+        self.assertEqual(summary["canonical"]["stream_loss_count"], 0)
 
     def test_file_stats_reports_missing_and_existing_paths(self) -> None:
         module = _load_module()

@@ -31,10 +31,7 @@ class BackendManagerTests(unittest.TestCase):
         config = load_app_config()
         payload = BackendManager(config).doctor().to_dict()
 
-        python_executable = str(payload.get("platform_context", {}).get("python_executable", ""))
-        self.assertTrue(python_executable)
-        self.assertNotIn("\\", python_executable)
-        self.assertNotIn("/", python_executable)
+        self.assertNotIn("python_executable", payload.get("platform_context", {}))
 
 
 if __name__ == "__main__":

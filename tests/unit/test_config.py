@@ -76,6 +76,23 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_app_config(str(config_dir))
 
+    def test_load_app_config_uses_resolved_encode_default_consistently(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_dir = temp_path / "config"
+            shutil.copytree(Path(__file__).resolve().parents[2] / "config", config_dir)
+            encode_profiles_path = config_dir / "encode_profiles.toml"
+            payload = encode_profiles_path.read_text(encoding="utf-8")
+            encode_profiles_path.write_text(
+                payload.replace('default_profile_id = "hevc_balanced_archive"', 'default_profile_id = "h264_compatibility_mp4"', 1),
+                encoding="utf-8",
+            )
+
+            config = load_app_config(str(config_dir))
+
+            self.assertEqual(config.encode.default_profile_id, "h264_compatibility_mp4")
+            self.assertEqual(config.app.default_encode_profile_id, "h264_compatibility_mp4")
+
 
 if __name__ == "__main__":
     unittest.main()

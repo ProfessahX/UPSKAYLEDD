@@ -138,6 +138,26 @@ class DeliveryGuidanceTests(unittest.TestCase):
         self.assertEqual(payload["selected_profile_id"], "hevc_balanced_archive")
         self.assertEqual(payload["selected_profile_label"], "HEVC Balanced Archive")
 
+    def test_selected_encode_profile_id_is_trimmed_before_lookup(self) -> None:
+        builder = DeliveryGuidanceBuilder(load_app_config())
+        report = make_report(source_path="episode01.mkv")
+
+        payload = builder.build(
+            [report],
+            {
+                "encode_profile_id": "  hevc_balanced_archive  ",
+                "container": "mkv",
+                "width": 1440,
+                "height": 1080,
+                "audio_codec": "copy",
+                "subtitle_codec": "copy",
+                "preserve_chapters": True,
+            },
+        )
+
+        self.assertEqual(payload["selected_profile_id"], "hevc_balanced_archive")
+        self.assertEqual(payload["selected_profile_label"], "HEVC Balanced Archive")
+
 
 if __name__ == "__main__":
     unittest.main()
