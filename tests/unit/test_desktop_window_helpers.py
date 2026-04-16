@@ -10,7 +10,12 @@ if str(DESKTOP_APPS) not in sys.path:
     sys.path.insert(0, str(DESKTOP_APPS))
 
 from pyside_app.ui_config import load_ui_config
-from pyside_app.window import build_dashboard_focus_text, build_media_metrics_snapshot, build_run_summary
+from pyside_app.window import (
+    build_dashboard_focus_text,
+    build_media_change_highlights,
+    build_media_metrics_snapshot,
+    build_run_summary,
+)
 
 
 def sample_run_payload() -> dict[str, object]:
@@ -146,6 +151,20 @@ class DesktopWindowHelperTests(unittest.TestCase):
             "Output landed smaller than the source sample with the current delivery settings.",
             snapshot["guidance"],
         )
+
+    def test_build_media_change_highlights_surfaces_size_resolution_cadence_and_stream_state(self) -> None:
+        highlights = build_media_change_highlights(sample_run_payload())
+
+        self.assertEqual(4, len(highlights))
+        self.assertEqual("Size", highlights[0]["title"])
+        self.assertEqual("75% of source", highlights[0]["value"])
+        self.assertEqual("Resolution", highlights[1]["title"])
+        self.assertIn("720x480 -> 1440x1080", highlights[1]["value"])
+        self.assertEqual("Cadence", highlights[2]["title"])
+        self.assertIn("29.97 -> 23.98 fps", highlights[2]["value"])
+        self.assertEqual("warning", highlights[2]["tone"])
+        self.assertEqual("Streams", highlights[3]["title"])
+        self.assertEqual("Delivery changed", highlights[3]["value"])
 
 
 if __name__ == "__main__":

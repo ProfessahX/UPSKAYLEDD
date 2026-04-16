@@ -203,6 +203,8 @@ class DashboardCopyConfig:
     last_completed_empty: str
     last_completed_template: str
     selection_empty: str
+    highlights_title: str
+    highlights_empty: str
     metrics_title: str
     metrics_empty: str
     metrics_guidance_title: str

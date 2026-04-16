@@ -1347,6 +1347,112 @@ def build_media_metrics_snapshot(payload: dict[str, Any] | None) -> dict[str, li
     return {"rows": rows, "guidance": guidance}
 
 
+def build_media_change_highlights(payload: dict[str, Any] | None) -> list[dict[str, str]]:
+    if payload is None:
+        return []
+    encode_settings = dict(payload.get("encode_settings", {}))
+    media_metrics = dict(encode_settings.get("media_metrics", {}))
+    input_metrics = dict(media_metrics.get("input", {}))
+    output_metrics = dict(media_metrics.get("output", {}))
+    comparison = dict(media_metrics.get("comparison", {}))
+    input_video = dict(input_metrics.get("video", {}))
+    output_video = dict(output_metrics.get("video", {}))
+    guidance = [
+        str(item).strip()
+        for item in encode_settings.get("conversion_guidance", [])
+        if str(item).strip()
+    ] or [
+        str(item).strip()
+        for item in comparison.get("guidance", [])
+        if str(item).strip()
+    ]
+
+    highlights: list[dict[str, str]] = []
+
+    size_ratio = comparison.get("size_ratio")
+    if size_ratio not in (None, ""):
+        ratio_value = float(size_ratio)
+        if ratio_value > 1.05:
+            size_tone = "danger"
+        elif ratio_value < 0.60:
+            size_tone = "warning"
+        else:
+            size_tone = "success"
+        highlights.append(
+            {
+                "title": "Size",
+                "value": _format_ratio_percent(ratio_value),
+                "detail": _pick_guidance(
+                    guidance,
+                    "larger than the source sample",
+                    "shrank aggressively",
+                    "current delivery settings",
+                )
+                or f"Output landed at {ratio_value:.2f}x the source sample size.",
+                "tone": size_tone,
+            }
+        )
+
+    input_resolution = _format_resolution(input_video)
+    output_resolution = _format_resolution(output_video)
+    if input_resolution != "unknown resolution" and output_resolution != "unknown resolution":
+        highlights.append(
+            {
+                "title": "Resolution",
+                "value": f"{input_resolution} -> {output_resolution}",
+                "detail": (
+                    f"Resolution scale is {float(comparison.get('resolution_scale', 0.0) or 0.0):.2f}x."
+                    if comparison.get("resolution_scale") not in (None, "")
+                    else "Source and output resolution are shown here for quick review."
+                ),
+                "tone": "info",
+            }
+        )
+
+    input_fps = input_video.get("avg_frame_rate_fps")
+    output_fps = output_video.get("avg_frame_rate_fps")
+    if input_fps not in (None, "") and output_fps not in (None, ""):
+        input_fps_value = float(input_fps)
+        output_fps_value = float(output_fps)
+        if abs(input_fps_value - output_fps_value) >= 0.5:
+            highlights.append(
+                {
+                    "title": "Cadence",
+                    "value": f"{input_fps_value:.2f} -> {output_fps_value:.2f} fps",
+                    "detail": _pick_guidance(guidance, "Frame rate changed")
+                    or "Frame rate changed materially between source and output. Review motion before committing a long batch.",
+                    "tone": "warning",
+                }
+            )
+
+    subtitle_stream_delta = int(comparison.get("subtitle_stream_delta", 0) or 0)
+    chapter_delta = int(comparison.get("chapter_delta", 0) or 0)
+    audio_changed = bool(comparison.get("audio_codec_changed"))
+    subtitle_changed = bool(comparison.get("subtitle_codec_changed"))
+    if subtitle_stream_delta < 0 or chapter_delta < 0:
+        stream_value = "Loss detected"
+        stream_detail = "One or more subtitle or chapter streams dropped during delivery. Review the manifest before trusting this lane."
+        stream_tone = "danger"
+    elif audio_changed or subtitle_changed:
+        stream_value = "Delivery changed"
+        stream_detail = "Audio or subtitle delivery changed for compatibility or encode reasons. Hover here, then inspect the metrics table if you need the specifics."
+        stream_tone = "warning"
+    else:
+        stream_value = "Preserved"
+        stream_detail = "Audio, subtitle, and chapter counts held steady between the source and output sample."
+        stream_tone = "success"
+    highlights.append(
+        {
+            "title": "Streams",
+            "value": stream_value,
+            "detail": stream_detail,
+            "tone": stream_tone,
+        }
+    )
+
+    return highlights[:4]
+
+
 def _format_media_metrics_block(label: str, metrics: dict[str, Any]) -> list[str]:
     video = dict(metrics.get("video", {}))
     audio = dict(metrics.get("audio", {}))
@@ -1458,6 +1564,27 @@ def _format_subtitle_metrics(subtitle: dict[str, Any]) -> str:
     return " · ".join(details)
 
 
+def _pick_guidance(guidance: list[str], *needles: str) -> str:
+    lowered_needles = tuple(needle.lower() for needle in needles)
+    for item in guidance:
+        item_lower = item.lower()
+        if any(needle in item_lower for needle in lowered_needles):
+            return item
+    return ""
+
+
+def _format_ratio_percent(value: float) -> str:
+    return f"{value * 100:.0f}% of source"
+
+
+def _format_resolution(video: dict[str, Any]) -> str:
+    width = video.get("width")
+    height = video.get("height")
+    if width in (None, "") or height in (None, ""):
+        return "unknown resolution"
+    return f"{int(width)}x{int(height)}"
+
+
 def build_dashboard_focus_text(overview: dict[str, Any] | None, copy: DashboardCopyConfig) -> str:
     if not overview:
         return copy.focus_empty
@@ -1552,6 +1679,20 @@ class DashboardPage(QWidget):
         self.selected_job_label = QLabel(self.ui_config.copy.dashboard.selection_empty)
         self.selected_job_label.setStyleSheet("color: #9aa8b7;")
         layout.addWidget(self.selected_job_label)
+
+        highlights_frame = QFrame()
+        highlights_frame.setObjectName("panelFrame")
+        highlights_layout = QVBoxLayout(highlights_frame)
+        highlights_layout.setContentsMargins(16, 16, 16, 16)
+        highlights_layout.setSpacing(10)
+        highlights_title = QLabel(self.ui_config.copy.dashboard.highlights_title)
+        highlights_title.setObjectName("sectionTitle")
+        highlights_layout.addWidget(highlights_title)
+        self.highlights_row = QHBoxLayout()
+        self.highlights_row.setSpacing(10)
+        highlights_layout.addLayout(self.highlights_row)
+        _set_tooltip(highlights_frame, self.ui_config.copy.tooltip("dashboard_highlights"))
+        layout.addWidget(highlights_frame)
 
         action_row = QHBoxLayout()
         self.resume_button = QPushButton(self.ui_config.copy.dashboard.mark_queued_button)
@@ -1709,6 +1850,7 @@ class DashboardPage(QWidget):
 
     def apply_run_manifest(self, payload: dict[str, Any] | None) -> None:
         if payload is None:
+            self._apply_highlights(None)
             self._apply_metrics_snapshot(None)
             self.run_summary_view.setPlainText(self.ui_config.copy.dashboard.run_summary_empty)
             self.manifest_view.setPlainText(self.ui_config.copy.dashboard.manifest_empty)
@@ -1718,10 +1860,62 @@ class DashboardPage(QWidget):
         job_id = self.controller.session.selected_job_id
         execution_mode = payload.get("encode_settings", {}).get("execution_mode", "not run yet")
         self.selected_job_label.setText(f"Selected job {job_id[:8]} · {execution_mode}")
+        self._apply_highlights(payload)
         self._apply_metrics_snapshot(payload)
         self.run_summary_view.setPlainText(build_run_summary(payload))
         self.manifest_view.setPlainText(json.dumps(payload, indent=2, sort_keys=True))
         self._load_review_media(job_id, payload)
+
+    def _apply_highlights(self, payload: dict[str, Any] | None) -> None:
+        highlights = build_media_change_highlights(payload)
+        self._clear_highlights()
+        if not highlights:
+            empty_label = QLabel(self.ui_config.copy.dashboard.highlights_empty)
+            empty_label.setWordWrap(True)
+            empty_label.setStyleSheet("color: #9aa8b7;")
+            self.highlights_row.addWidget(empty_label, 1)
+            return
+        for highlight in highlights:
+            card = QFrame()
+            card.setObjectName("panelFrame")
+            card.setMinimumHeight(92)
+            card.setToolTip(str(highlight.get("detail", "")))
+            card.setStyleSheet(self._highlight_card_style(str(highlight.get("tone", "info"))))
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(14, 12, 14, 12)
+            card_layout.setSpacing(6)
+            title = QLabel(str(highlight.get("title", "")))
+            title.setStyleSheet("font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #9aa8b7;")
+            card_layout.addWidget(title)
+            value = QLabel(str(highlight.get("value", "")))
+            value.setWordWrap(True)
+            value.setStyleSheet("font-size: 18px; font-weight: 700; color: #f4f8fb;")
+            card_layout.addWidget(value, 1)
+            self.highlights_row.addWidget(card, 1)
+
+    def _clear_highlights(self) -> None:
+        while self.highlights_row.count():
+            item = self.highlights_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _highlight_card_style(self, tone: str) -> str:
+        accents = {
+            "success": "#2f9e74",
+            "warning": "#d8a93d",
+            "danger": "#c75d5d",
+            "info": "#4d86c7",
+        }
+        accent = accents.get(tone, accents["info"])
+        return (
+            "QFrame#panelFrame {"
+            "background-color: rgba(19, 25, 32, 0.94);"
+            "border: 1px solid rgba(255, 255, 255, 0.07);"
+            f"border-left: 3px solid {accent};"
+            "border-radius: 14px;"
+            "}"
+        )
 
     def _apply_metrics_snapshot(self, payload: dict[str, Any] | None) -> None:
         snapshot = build_media_metrics_snapshot(payload)
