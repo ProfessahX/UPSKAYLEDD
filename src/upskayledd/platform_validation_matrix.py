@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
+from upskayledd.config import load_app_config
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,6 +32,7 @@ def summarize_context(
     doctor_report: dict[str, Any] | None,
     setup_payload: dict[str, Any] | None,
     *,
+    actionable_check_names: set[str] | None = None,
     available: bool = True,
     error: str = "",
 ) -> dict[str, Any]:
@@ -40,11 +42,22 @@ def summarize_context(
     actions = list(setup.get("actions", []))
     missing_checks = [item for item in checks if str(item.get("status", "")) == "missing"]
     degraded_checks = [item for item in checks if str(item.get("status", "")) == "degraded"]
+    actionable_names = set(actionable_check_names or ())
+    actionable_missing_checks = [
+        item
+        for item in missing_checks
+        if not actionable_names or str(item.get("name", "")).strip() in actionable_names
+    ]
+    actionable_degraded_checks = [
+        item
+        for item in degraded_checks
+        if not actionable_names or str(item.get("name", "")).strip() in actionable_names
+    ]
     if not available:
         health = "unavailable"
     elif actions:
         health = "attention"
-    elif missing_checks or degraded_checks or doctor.get("warnings"):
+    elif actionable_missing_checks or actionable_degraded_checks or doctor.get("warnings"):
         health = "watch"
     else:
         health = "ready"
@@ -56,8 +69,15 @@ def summarize_context(
         "platform_summary": str(doctor.get("platform_summary", "")).strip(),
         "missing_check_count": len(missing_checks),
         "degraded_check_count": len(degraded_checks),
+        "actionable_missing_check_count": len(actionable_missing_checks),
+        "actionable_degraded_check_count": len(actionable_degraded_checks),
         "action_count": len(actions),
         "missing_check_names": [str(item.get("name", "")).strip() for item in missing_checks if str(item.get("name", "")).strip()],
+        "actionable_missing_check_names": [
+            str(item.get("name", "")).strip()
+            for item in actionable_missing_checks
+            if str(item.get("name", "")).strip()
+        ],
         "path_rules": list(doctor.get("path_rules", [])),
         "warnings": list(doctor.get("warnings", [])),
         "actions": actions,
@@ -74,9 +94,13 @@ def build_watch_items(contexts: list[dict[str, Any]]) -> list[str]:
         if not context.get("available", True):
             items.append(f"{label} validation could not be collected automatically.")
             continue
-        if int(context.get("missing_check_count", 0) or 0) > 0:
+        actionable_missing_count = int(context.get("actionable_missing_check_count", context.get("missing_check_count", 0)) or 0)
+        actionable_degraded_count = int(
+            context.get("actionable_degraded_check_count", context.get("degraded_check_count", 0)) or 0
+        )
+        if actionable_missing_count > 0:
             items.append(f"{label} still has missing runtime checks.")
-        elif int(context.get("degraded_check_count", 0) or 0) > 0 and context.get("warnings"):
+        elif actionable_degraded_count > 0 and context.get("warnings"):
             items.append(f"{label} is usable but still carries degraded runtime checks.")
         if int(context.get("action_count", 0) or 0) > 0:
             items.append(f"{label} still has prioritized setup actions to clear.")
@@ -149,6 +173,7 @@ def _wsl_payload(repo_root: Path) -> dict[str, Any]:
 
 
 def collect_contexts(repo_root: Path) -> list[dict[str, Any]]:
+    actionable_check_names = set(load_app_config(str(repo_root / "config")).runtime_actions.checks.keys())
     contexts: list[dict[str, Any]] = []
     try:
         native_payload = _native_payload(repo_root)
@@ -170,6 +195,7 @@ def collect_contexts(repo_root: Path) -> list[dict[str, Any]]:
                 "Windows (native)",
                 native_payload["doctor"],
                 native_payload["setup_plan"],
+                actionable_check_names=actionable_check_names,
             )
         )
     try:
@@ -192,6 +218,7 @@ def collect_contexts(repo_root: Path) -> list[dict[str, Any]]:
                 "Linux (WSL)",
                 wsl_payload["doctor"],
                 wsl_payload["setup_plan"],
+                actionable_check_names=actionable_check_names,
             )
         )
     return contexts
@@ -206,4 +233,3 @@ def build_platform_validation_payload(repo_root: str | Path | None = None) -> di
         "contexts": contexts,
         "watch_items": build_watch_items(contexts),
     }
-

@@ -83,6 +83,37 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         self.assertEqual(context["health"], "watch")
         self.assertIn("Linux (WSL) still has missing runtime checks.", watch_items)
 
+    def test_non_actionable_missing_checks_do_not_downgrade_ready_state(self) -> None:
+        module = _load_module()
+        context = module.summarize_context(
+            "windows_native",
+            "Windows (native)",
+            {
+                "platform_summary": "Windows · 10 · AMD64 · Python 3.13.12",
+                "checks": [
+                    {"name": "trt", "status": "missing"},
+                    {"name": "trt_rtx", "status": "missing"},
+                    {"name": "model_dir:C:/Users/example/AppData/Local/UPSKAYLEDD/models", "status": "degraded"},
+                ],
+                "warnings": [],
+                "path_rules": [],
+            },
+            {"actions": []},
+            actionable_check_names={"ffmpeg", "ffprobe", "vapoursynth", "vsmlrt", "ffms2", "vspipe", "preview_cache_dir", "output_root"},
+        )
+
+        watch_items = module.build_watch_items([context])
+
+        self.assertEqual(context["missing_check_count"], 2)
+        self.assertEqual(context["degraded_check_count"], 1)
+        self.assertEqual(context["actionable_missing_check_count"], 0)
+        self.assertEqual(context["actionable_degraded_check_count"], 0)
+        self.assertEqual(context["health"], "ready")
+        self.assertEqual(
+            watch_items,
+            ["Native and collected secondary runtime contexts look aligned enough for the current release-hardening pass."],
+        )
+
     def test_unavailable_native_context_still_participates_in_watch_items(self) -> None:
         module = _load_module()
         native = module.summarize_context(
