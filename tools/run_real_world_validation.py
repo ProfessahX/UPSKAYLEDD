@@ -170,6 +170,116 @@ def summarize_runtime_context(
     }
 
 
+def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    def summarize_mode(items: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        size_ratios: list[float] = []
+        cadence_change_count = 0
+        subtitle_change_count = 0
+        stream_loss_count = 0
+        oversized_delivery_count = 0
+        completed_runs = 0
+        errored_runs = 0
+        for item in items:
+            run = dict(item.get(key, {}))
+            if str(run.get("error", "")).strip():
+                errored_runs += 1
+            elif run.get("execution_mode"):
+                completed_runs += 1
+            size_summary = dict(run.get("size_summary", {}))
+            size_ratio = size_summary.get("size_ratio")
+            if size_ratio not in (None, ""):
+                size_ratios.append(float(size_ratio))
+            if size_summary.get("oversized_delivery"):
+                oversized_delivery_count += 1
+            comparison = dict(run.get("media_metrics", {})).get("comparison", {})
+            input_video = dict(dict(run.get("media_metrics", {})).get("input", {})).get("video", {})
+            output_video = dict(dict(run.get("media_metrics", {})).get("output", {})).get("video", {})
+            input_fps = input_video.get("avg_frame_rate_fps")
+            output_fps = output_video.get("avg_frame_rate_fps")
+            if input_fps not in (None, "") and output_fps not in (None, ""):
+                if abs(float(input_fps) - float(output_fps)) >= 0.5:
+                    cadence_change_count += 1
+            if comparison.get("subtitle_codec_changed") or int(comparison.get("subtitle_stream_delta", 0) or 0) != 0:
+                subtitle_change_count += 1
+            if int(comparison.get("subtitle_stream_delta", 0) or 0) < 0 or int(comparison.get("chapter_delta", 0) or 0) < 0:
+                stream_loss_count += 1
+        size_summary_payload: dict[str, Any] = {"count": len(size_ratios)}
+        if size_ratios:
+            size_summary_payload.update(
+                {
+                    "min": round(min(size_ratios), 4),
+                    "avg": round(sum(size_ratios) / len(size_ratios), 4),
+                    "max": round(max(size_ratios), 4),
+                }
+            )
+        return {
+            "completed_runs": completed_runs,
+            "errored_runs": errored_runs,
+            "oversized_delivery_count": oversized_delivery_count,
+            "cadence_change_count": cadence_change_count,
+            "subtitle_change_count": subtitle_change_count,
+            "stream_loss_count": stream_loss_count,
+            "size_ratio": size_summary_payload,
+        }
+
+    canonical = summarize_mode(results, "canonical_run")
+    degraded = summarize_mode(results, "degraded_run")
+    detected_source_classes = sorted(
+        {
+            str(dict(item.get("inspection", {})).get("detected_source_class", "")).strip()
+            for item in results
+            if str(dict(item.get("inspection", {})).get("detected_source_class", "")).strip()
+        }
+    )
+    recommended_profiles = sorted(
+        {
+            str(dict(item.get("inspection", {})).get("recommended_profile_id", "")).strip()
+            for item in results
+            if str(dict(item.get("inspection", {})).get("recommended_profile_id", "")).strip()
+        }
+    )
+    encode_profiles = sorted(
+        {
+            str(dict(item.get("output_policy", {})).get("encode_profile_id", "")).strip()
+            for item in results
+            if str(dict(item.get("output_policy", {})).get("encode_profile_id", "")).strip()
+        }
+    )
+    watch_items: list[str] = []
+    source_count = len(results)
+    if canonical["cadence_change_count"]:
+        watch_items.append(
+            f"Canonical runs changed frame rate on {canonical['cadence_change_count']}/{source_count} sampled source(s)."
+        )
+    if canonical["oversized_delivery_count"] or degraded["oversized_delivery_count"]:
+        watch_items.append(
+            "At least one sampled delivery landed larger than its source clip. Review the chosen encode lane before scaling up."
+        )
+    if canonical["stream_loss_count"] or degraded["stream_loss_count"]:
+        watch_items.append(
+            "At least one sampled run dropped subtitle or chapter streams. Verify preservation before trusting that delivery lane."
+        )
+    if canonical["subtitle_change_count"] or degraded["subtitle_change_count"]:
+        watch_items.append(
+            "At least one sampled run changed subtitle delivery. Double-check compatibility-focused lanes against preservation goals."
+        )
+    if canonical["errored_runs"]:
+        watch_items.append(
+            f"The canonical path failed on {canonical['errored_runs']}/{source_count} sampled source(s)."
+        )
+    if not watch_items:
+        watch_items.append("No immediate batch-level watch items were detected in the sampled validation runs.")
+    return {
+        "source_count": source_count,
+        "detected_source_classes": detected_source_classes,
+        "recommended_profiles": recommended_profiles,
+        "encode_profiles": encode_profiles,
+        "canonical": canonical,
+        "degraded": degraded,
+        "watch_items": watch_items,
+    }
+
+
 def run_validation_for_source(
     service: AppService,
     source: Path,
@@ -334,6 +444,7 @@ def main(argv: list[str] | None = None) -> int:
             "target": str(target),
             "source_count": len(results),
             "runtime_context": summarize_runtime_context(doctor_report, setup_actions),
+            "summary": summarize_validation_results(results),
             "results": results,
         }
         output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
