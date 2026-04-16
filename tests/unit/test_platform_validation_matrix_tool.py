@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 
 def _load_module():
@@ -105,6 +110,46 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         self.assertEqual(native["health"], "unavailable")
         self.assertIn("Windows (native) validation could not be collected automatically.", watch_items)
         self.assertTrue(any("Native Windows and Linux-side WSL currently differ in runtime readiness." == item for item in watch_items))
+
+    def test_resolve_output_path_prefers_flag_and_rejects_duplicates(self) -> None:
+        module = _load_module()
+        parser = module.build_parser()
+        args = parser.parse_args(["--output-json", "runtime/validation/custom.json"])
+
+        output_path = module.resolve_output_path(args, parser)
+
+        self.assertEqual(output_path.name, "custom.json")
+
+        duplicate_args = parser.parse_args(["legacy.json", "--output-json", "flag.json"])
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            module.resolve_output_path(duplicate_args, parser)
+
+    def test_main_writes_flagged_output_path_with_collection_metadata(self) -> None:
+        module = _load_module()
+        contexts = [
+            module.summarize_context(
+                "windows_native",
+                "Windows (native)",
+                {
+                    "platform_summary": "Windows · 10 · AMD64 · Python 3.13.12",
+                    "checks": [{"name": "ffmpeg", "status": "healthy"}],
+                    "warnings": [],
+                    "path_rules": [],
+                },
+                {"actions": []},
+            )
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "matrix.json"
+            with mock.patch.object(module, "collect_contexts", return_value=contexts):
+                with redirect_stdout(io.StringIO()):
+                    result = module.main(["--output-json", str(output_path)])
+
+            self.assertEqual(result, 0)
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["repo_root"], str(module.ROOT))
+            self.assertIn("generated_at_utc", payload)
+            self.assertEqual(payload["contexts"][0]["context_id"], "windows_native")
 
 
 if __name__ == "__main__":

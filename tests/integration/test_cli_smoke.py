@@ -71,6 +71,18 @@ class CLISmokeTests(unittest.TestCase):
             self.assertIn("output_root", location_ids)
             self.assertIn("support_bundle_dir", location_ids)
 
+    def test_platform_matrix_writes_json_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "platform_matrix.json"
+            exit_code = main(["platform-matrix", "--json-output", str(output)])
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            context_ids = {item["context_id"] for item in payload["contexts"]}
+            self.assertIn("windows_native", context_ids)
+            self.assertIn("linux_wsl", context_ids)
+            self.assertIn("generated_at_utc", payload)
+            self.assertTrue(payload["watch_items"])
+
     def test_compare_media_writes_json_output(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:

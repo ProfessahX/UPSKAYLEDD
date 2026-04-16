@@ -122,6 +122,29 @@ def command_paths(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_platform_matrix(args: argparse.Namespace) -> int:
+    payload = AppService(args.config_dir).platform_validation_matrix(repo_root=args.repo_root)
+    _write_optional_json(args.json_output, payload)
+    for context in payload["contexts"]:
+        summary = str(context.get("platform_summary", "")).strip() or str(context.get("display_name", "Context"))
+        health = str(context.get("health", "unknown")).strip()
+        print(f"{summary}: {health}")
+        if not context.get("available", True):
+            error = str(context.get("error", "")).strip()
+            if error:
+                print(f"  {error}")
+            continue
+        missing = int(context.get("missing_check_count", 0) or 0)
+        degraded = int(context.get("degraded_check_count", 0) or 0)
+        actions = int(context.get("action_count", 0) or 0)
+        print(f"  Missing checks: {missing} | Degraded checks: {degraded} | Setup actions: {actions}")
+    if payload["watch_items"]:
+        print("Watch items:")
+        for item in payload["watch_items"]:
+            print(f"- {item}")
+    return 0
+
+
 def command_compare_media(args: argparse.Namespace) -> int:
     payload = AppService(args.config_dir).compare_media_files(
         args.input_path,
@@ -336,6 +359,14 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_paths = subparsers.add_parser("paths", help="Show the runtime/output/support/model locations this install will use.")
     runtime_paths.add_argument("--json-output", help="Optional path to write resolved runtime locations.")
     runtime_paths.set_defaults(func=command_paths)
+
+    platform_matrix = subparsers.add_parser(
+        "platform-matrix",
+        help="Collect native Windows and Linux-side WSL runtime readiness into one validation snapshot.",
+    )
+    platform_matrix.add_argument("--repo-root", default=None, help="Optional repo root override for native and WSL collection.")
+    platform_matrix.add_argument("--json-output", help="Optional path to write the platform validation matrix.")
+    platform_matrix.set_defaults(func=command_platform_matrix)
 
     compare_media = subparsers.add_parser(
         "compare-media",

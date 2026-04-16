@@ -17,6 +17,7 @@ from upskayledd.manifest_writer import read_artifact
 from upskayledd.media_metrics import compare_media_metrics, summarize_media_probe
 from upskayledd.model_registry import ModelRegistry
 from upskayledd.models import ComparisonMode, FidelityMode, InspectionReport, JobRecord, PreviewResult, ProjectManifest
+from upskayledd.platform_validation_matrix import build_platform_validation_payload
 from upskayledd.pipeline_builder import PipelineBuilder
 from upskayledd.preview_engine import PreviewEngine
 from upskayledd.profile_resolver import ProfileResolver
@@ -90,6 +91,9 @@ class AppService:
         if primary_model_dir:
             locations.append(self._location_payload("primary_model_dir", primary_model_dir))
         return {"locations": locations}
+
+    def platform_validation_matrix(self, repo_root: str | Path | None = None) -> dict[str, Any]:
+        return build_platform_validation_payload(repo_root)
 
     def compare_media_files(
         self,

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from upskayledd.app_service import AppService
 from upskayledd.core.errors import ConfigError
@@ -297,6 +298,23 @@ class AppServiceTests(unittest.TestCase):
             )
             self.assertEqual(normalize_path(location_lookup["app_state_dir"]["path"]), normalize_path(temp_path))
             self.assertIn("primary_model_dir", location_lookup)
+
+    def test_platform_validation_matrix_uses_shared_builder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_dir = make_temp_config(Path(temp_dir))
+            service = AppService(str(config_dir))
+            payload = {
+                "generated_at_utc": "2026-04-16T00:00:00Z",
+                "repo_root": "Z:\\UPSKAYLEDD",
+                "contexts": [{"context_id": "windows_native", "health": "ready"}],
+                "watch_items": ["Everything looks good enough."],
+            }
+
+            with mock.patch("upskayledd.app_service.build_platform_validation_payload", return_value=payload) as builder:
+                result = service.platform_validation_matrix()
+
+            builder.assert_called_once_with(None)
+            self.assertEqual(result["contexts"][0]["context_id"], "windows_native")
 
     def test_compare_media_files_returns_normalized_metrics_and_guidance(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
