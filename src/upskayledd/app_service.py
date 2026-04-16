@@ -9,11 +9,15 @@ from upskayledd.backend_manager import BackendManager
 from upskayledd.bootstrap import ModelPackInstaller
 from upskayledd.config import AppConfig, load_app_config
 from upskayledd.core.paths import resolve_runtime_path
+from upskayledd.delivery_guidance import DeliveryGuidanceBuilder
 from upskayledd.encode_mux import EncodeMuxPlanner
 from upskayledd.inspector import Inspector
+from upskayledd.integrations.ffprobe import FFprobeAdapter
 from upskayledd.manifest_writer import read_artifact
+from upskayledd.media_metrics import compare_media_metrics, summarize_media_probe
 from upskayledd.model_registry import ModelRegistry
-from upskayledd.models import ComparisonMode, FidelityMode, JobRecord, PreviewResult, ProjectManifest
+from upskayledd.models import ComparisonMode, FidelityMode, InspectionReport, JobRecord, PreviewResult, ProjectManifest
+from upskayledd.platform_validation_matrix import build_platform_validation_payload
 from upskayledd.pipeline_builder import PipelineBuilder
 from upskayledd.preview_engine import PreviewEngine
 from upskayledd.profile_resolver import ProfileResolver
@@ -38,14 +42,17 @@ class AppService:
         self.backend_manager = BackendManager(self.config)
         self.preview_engine = PreviewEngine(self.config, self.store)
         self.queue_runner = QueueRunner(self.store, self.config)
+        self.ffprobe = FFprobeAdapter()
         self.model_pack_installer = ModelPackInstaller(self.config)
         self.encode_mux_planner = EncodeMuxPlanner(self.config)
+        self.delivery_guidance_builder = DeliveryGuidanceBuilder(self.config)
         self.runtime_guidance = RuntimeGuidanceBuilder(self.config)
         self.support_bundle_exporter = SupportBundleExporter(self.config, self.store)
 
     def doctor_report(self) -> dict[str, Any]:
         payload = self.backend_manager.doctor().to_dict()
         payload["path_rules"] = self.backend_manager.validate_runtime_path(self.config.app.preview_cache_dir)
+        payload["platform_summary"] = self._platform_summary(dict(payload.get("platform_context", {})))
         return payload
 
     def list_model_packs(self) -> dict[str, Any]:
@@ -84,6 +91,39 @@ class AppService:
         if primary_model_dir:
             locations.append(self._location_payload("primary_model_dir", primary_model_dir))
         return {"locations": locations}
+
+    def platform_validation_matrix(self, repo_root: str | Path | None = None) -> dict[str, Any]:
+        return build_platform_validation_payload(repo_root)
+
+    def compare_media_files(
+        self,
+        input_path: str | Path,
+        output_path: str | Path,
+        *,
+        encode_profile_id: str | None = None,
+        preserve_chapters: bool = True,
+    ) -> dict[str, Any]:
+        normalized_encode_profile_id = self._normalize_encode_profile_id(encode_profile_id)
+        input_probe = self.ffprobe.probe(input_path)
+        output_probe = self.ffprobe.probe(output_path)
+        input_metrics = summarize_media_probe(input_probe)
+        output_metrics = summarize_media_probe(output_probe)
+        comparison = compare_media_metrics(
+            input_metrics,
+            output_metrics,
+            encode_profile_id=normalized_encode_profile_id,
+            preserve_chapters=preserve_chapters,
+            config=self.config.conversion_guidance,
+        )
+        return {
+            "input_path": str(Path(input_path).resolve()),
+            "output_path": str(Path(output_path).resolve()),
+            "encode_profile_id": normalized_encode_profile_id,
+            "preserve_chapters": preserve_chapters,
+            "input_metrics": input_metrics,
+            "output_metrics": output_metrics,
+            "comparison": comparison,
+        }
 
     def runtime_action_plan(
         self,
@@ -134,8 +174,21 @@ class AppService:
             "inspection_reports": [report.to_dict() for report in reports],
             "backend_selection": backend.to_dict(),
             "project_manifest": manifest.to_dict(),
+            "delivery_guidance": self.build_delivery_guidance(
+                reports=[report.to_dict() for report in reports],
+                output_policy=manifest.output_policy,
+            ),
             "batch_summary": self._build_batch_summary(reports, manifest, backend.to_dict()),
         }
+
+    def build_delivery_guidance(
+        self,
+        *,
+        reports: list[dict[str, Any]],
+        output_policy: dict[str, Any],
+    ) -> dict[str, Any]:
+        inspection_reports = [InspectionReport.from_dict(report) for report in reports]
+        return self.delivery_guidance_builder.build(inspection_reports, output_policy)
 
     def prepare_preview(
         self,
@@ -354,6 +407,7 @@ class AppService:
             doctor_report=self.doctor_report(),
             model_packs=self.list_model_packs(),
             setup_actions=self.runtime_action_plan(),
+            platform_validation_matrix=self.platform_validation_matrix(),
             dashboard_snapshot=self.dashboard_snapshot(),
             session_state=session_state,
             selected_job_id=selected_job_id,
@@ -438,6 +492,20 @@ class AppService:
             "backend_plan": backend_selection.get("backend_id", "unknown"),
         }
 
+    def _platform_summary(self, platform_context: dict[str, Any]) -> str:
+        if not platform_context:
+            return ""
+        environment_label = str(platform_context.get("environment_label", "")).strip()
+        release = str(platform_context.get("release", "")).strip()
+        machine = str(platform_context.get("machine", "")).strip()
+        python_status = self.backend_manager.environment.get("python")
+        python_version = python_status.detail if python_status is not None else ""
+        parts = [part for part in (environment_label, release, machine) if part]
+        summary = " · ".join(parts)
+        if python_version:
+            summary = f"{summary} · Python {python_version}" if summary else f"Python {python_version}"
+        return summary
+
     def _location_payload(self, location_id: str, raw_path: str | Path) -> dict[str, Any]:
         resolved = resolve_runtime_path(raw_path)
         return {
@@ -446,6 +514,15 @@ class AppService:
             "exists": resolved.exists(),
             "writable": resolved.is_dir() or not resolved.exists(),
         }
+
+    def _normalize_encode_profile_id(self, encode_profile_id: str | None) -> str | None:
+        if encode_profile_id is None:
+            return None
+        normalized = str(encode_profile_id).strip()
+        if not normalized:
+            return None
+        self.config.encode_profile_by_id(normalized)
+        return normalized
 
     def _recent_targets_state_key(self) -> str:
         return f"{self.RECENT_TARGETS_STATE_KEY}:{self.config.app.project_history_scope}"

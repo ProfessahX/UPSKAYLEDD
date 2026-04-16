@@ -1,14 +1,28 @@
 from __future__ import annotations
 
 import json
+import io
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from upskayledd.cli import main
+
+
+def run_fixture_command(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+    options = {
+        "check": True,
+        "capture_output": True,
+        "text": True,
+        **kwargs,
+    }
+    return subprocess.run(command, **options)  # noqa: S603
 
 
 class CLISmokeTests(unittest.TestCase):
@@ -18,6 +32,9 @@ class CLISmokeTests(unittest.TestCase):
             exit_code = main(["doctor", "--json-output", str(output)])
             self.assertEqual(exit_code, 0)
             self.assertTrue(output.exists())
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertIn("platform_context", payload)
+            self.assertTrue(str(payload.get("platform_summary", "")).strip())
 
     def test_list_model_packs_reports_curated_entries(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -46,6 +63,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertIn("actions", payload)
+            self.assertIn("platform_summary", payload)
 
     def test_paths_writes_json_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -57,6 +75,105 @@ class CLISmokeTests(unittest.TestCase):
             self.assertIn("output_root", location_ids)
             self.assertIn("support_bundle_dir", location_ids)
 
+    def test_platform_matrix_writes_json_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "platform_matrix.json"
+            with mock.patch.dict(
+                os.environ,
+                {"TMP": temp_dir, "TEMP": temp_dir, "TMPDIR": temp_dir},
+                clear=False,
+            ):
+                exit_code = main(["platform-matrix", "--json-output", str(output)])
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            context_ids = {item["context_id"] for item in payload["contexts"]}
+            self.assertIn("windows_native", context_ids)
+            self.assertIn("linux_wsl", context_ids)
+            self.assertIn("generated_at_utc", payload)
+            self.assertIn("watch_items", payload)
+            self.assertIsInstance(payload["watch_items"], list)
+
+    def test_platform_matrix_prints_context_actions_inline(self) -> None:
+        buffer = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(
+                os.environ,
+                {"TMP": temp_dir, "TEMP": temp_dir, "TMPDIR": temp_dir},
+                clear=False,
+            ):
+                with redirect_stdout(buffer):
+                    exit_code = main(["platform-matrix"])
+
+        self.assertEqual(exit_code, 0)
+        output = buffer.getvalue()
+        self.assertIn("Windows", output)
+        self.assertIn("Linux (WSL)", output)
+        self.assertIn("Setup actions:", output)
+        self.assertIn("- ", output)
+
+    def test_compare_media_writes_json_output(self) -> None:
+        ffmpeg = shutil.which("ffmpeg")
+        ffprobe = shutil.which("ffprobe")
+        if not ffmpeg or not ffprobe:
+            self.skipTest("ffmpeg/ffprobe not available")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source = temp_path / "source.mkv"
+            output_media = temp_path / "output.mp4"
+            output_json = temp_path / "compare.json"
+            run_fixture_command(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=320x240:d=0.6",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(source),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            run_fixture_command(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-i",
+                    str(source),
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    "18",
+                    "-c:a",
+                    "aac",
+                    str(output_media),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            exit_code = main(
+                [
+                    "compare-media",
+                    str(source),
+                    str(output_media),
+                    "--encode-profile",
+                    "h264_compatibility_mp4",
+                    "--json-output",
+                    str(output_json),
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(output_json.read_text(encoding="utf-8"))
+            self.assertEqual(payload["input_metrics"]["container_name"], "matroska")
+            self.assertIn("guidance", payload["comparison"])
+            self.assertTrue(payload["comparison"]["guidance"])
+
     def test_recommend_builds_manifest_for_real_clip(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
@@ -65,7 +182,8 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             manifest = Path(temp_dir) / "project_manifest.json"
-            subprocess.run(
+            payload_output = Path(temp_dir) / "recommendation.json"
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -81,9 +199,21 @@ class CLISmokeTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            exit_code = main(["recommend", str(source), "--project-output", str(manifest)])
+            exit_code = main(
+                [
+                    "recommend",
+                    str(source),
+                    "--project-output",
+                    str(manifest),
+                    "--json-output",
+                    str(payload_output),
+                ]
+            )
             self.assertEqual(exit_code, 0)
             self.assertTrue(manifest.exists())
+            payload = json.loads(payload_output.read_text(encoding="utf-8"))
+            self.assertIn("delivery_guidance", payload)
+            self.assertTrue(payload["delivery_guidance"]["selected_messages"])
 
     def test_recommend_accepts_unknown_video_extension_when_probe_finds_video(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
@@ -93,7 +223,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.remuxblob"
             manifest = Path(temp_dir) / "project_manifest.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -124,7 +254,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             manifest = Path(temp_dir) / "project_manifest.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -164,7 +294,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             result_path = Path(temp_dir) / "preview_result.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -204,7 +334,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             result_path = Path(temp_dir) / "preview_exact.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -246,7 +376,7 @@ class CLISmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.mp4"
             result_path = Path(temp_dir) / "preview_upscale_exact.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -292,7 +422,7 @@ class CLISmokeTests(unittest.TestCase):
             source = Path(temp_dir) / "sample.mp4"
             manifest = Path(temp_dir) / "project_manifest.json"
             output_dir = Path(temp_dir) / "output"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -353,7 +483,7 @@ class CLISmokeTests(unittest.TestCase):
             manifest = temp_path / "project_manifest.json"
             output_dir = temp_path / "output"
             for source in fixtures:
-                subprocess.run(
+                run_fixture_command(
                     [
                         ffmpeg,
                         "-y",
@@ -408,7 +538,7 @@ class CLISmokeTests(unittest.TestCase):
                 "[CHAPTER]\nTIMEBASE=1/1000\nSTART=500\nEND=1000\ntitle=Main Scene\n",
                 encoding="utf-8",
             )
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -469,7 +599,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertTrue(outputs)
             self.assertTrue(payloads)
 
-            probe = subprocess.run(
+            probe = run_fixture_command(
                 [
                     ffprobe,
                     "-v",
@@ -524,7 +654,7 @@ class CLISmokeTests(unittest.TestCase):
                 "[CHAPTER]\nTIMEBASE=1/1000\nSTART=500\nEND=1000\ntitle=Act Two\n",
                 encoding="utf-8",
             )
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -594,7 +724,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertTrue(outputs)
             self.assertTrue(payloads)
 
-            probe = subprocess.run(
+            probe = run_fixture_command(
                 [
                     ffprobe,
                     "-v",
@@ -638,7 +768,7 @@ class CLISmokeTests(unittest.TestCase):
             source = Path(temp_dir) / "sample.mp4"
             manifest = Path(temp_dir) / "project_manifest.json"
             output_dir = Path(temp_dir) / "output"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -697,7 +827,7 @@ class CLISmokeTests(unittest.TestCase):
                 "[CHAPTER]\nTIMEBASE=1/1000\nSTART=500\nEND=1000\ntitle=Act Two\n",
                 encoding="utf-8",
             )
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -758,7 +888,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertTrue(outputs)
             self.assertTrue(payloads)
 
-            probe = subprocess.run(
+            probe = run_fixture_command(
                 [
                     ffprobe,
                     "-v",
@@ -809,6 +939,7 @@ class CLISmokeTests(unittest.TestCase):
             self.assertIn("bundle_manifest.json", payload["entries"])
             with zipfile.ZipFile(bundle) as archive:
                 self.assertIn("doctor_report.json", archive.namelist())
+                self.assertIn("platform_validation_matrix.json", archive.namelist())
 
 
 if __name__ == "__main__":

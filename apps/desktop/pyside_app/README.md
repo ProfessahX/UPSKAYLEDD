@@ -19,8 +19,10 @@ Current state:
 - the ingest screen now also includes a recent-target shelf with lightweight analysis context so repeat users can jump back into a previously analyzed season or file directly from cold start
 - the ingest screen also exposes support-bundle export so users can package runtime/model-pack/job context without assembling it by hand
 - the ingest runtime card now shows a short guided next-steps list derived from real runtime state instead of UI-only hardcoded advice
+- the ingest runtime card now also shows runtime-platform context and can surface a WSL-specific setup action when the Linux-side runtime is incomplete
 - the ingest runtime card now also offers direct open-folder actions for the important runtime paths instead of hiding them behind guesswork
 - the summary screen now includes a batch-review table for per-source profile/outlier review before the workspace opens
+- the summary screen now also includes plain-language delivery guidance for the selected encode lane plus short alternate-lane notes, so users can see preservation-vs-compatibility tradeoffs before running
 - the workspace now keeps a small batch-context note visible so the selected source is framed as aligned, outlier, or manual-review worthy
 - cleanup and upscale are now conservative by default but expose extra preset options in config so stronger paths are available without code edits
 - the dashboard now includes a result-review compare surface that can load source vs completed output from the selected job

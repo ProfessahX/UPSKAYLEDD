@@ -1,0 +1,17 @@
+[profiles]
+archive_ids = ["hevc_balanced_archive", "hevc_smaller_archive"]
+smaller_ids = ["hevc_smaller_archive"]
+compatibility_ids = ["h264_compatibility_mp4"]
+
+[messages]
+archive = "Archive-focused HEVC is the safest default for preservation-minded batches."
+smaller = "This lane leans harder toward smaller files; spot-check fine detail before running a whole season."
+compatibility = "This lane favors easier playback on picky devices and older apps."
+subtitle_preserve = "Source includes image-based subtitles, and this lane keeps the safest subtitle-preservation setup."
+subtitle_risk = "Source includes image-based subtitles, and this lane may convert or drop them."
+audio_preserve = "Source includes up to {channels} audio channels, and this lane keeps the original mix."
+audio_transcode = "Source includes up to {channels} audio channels, and this lane transcodes audio to {audio_codec} for compatibility."
+upscale_target = "Target output is {width}x{height}, about {scale}x the source pixel count."
+chapters_preserve = "Chapters stay enabled on this lane."
+chapters_drop = "Chapters are disabled on this lane."
+batch_outliers = "This batch contains source outliers, so validate delivery on a flagged episode before queueing everything."

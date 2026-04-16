@@ -12,6 +12,7 @@ from upskayledd import __version__
 from upskayledd.config import AppConfig
 from upskayledd.core.paths import ensure_directory, resolve_runtime_path
 from upskayledd.models import utc_now
+from upskayledd.platform_validation_matrix import windows_to_wsl_path
 from upskayledd.project_store import ProjectStore
 
 
@@ -48,6 +49,7 @@ class SupportBundleExporter:
         doctor_report: dict[str, object],
         model_packs: dict[str, object],
         setup_actions: list[dict[str, object]],
+        platform_validation_matrix: dict[str, object] | None = None,
         dashboard_snapshot: dict[str, object],
         session_state: dict[str, object] | None = None,
         selected_job_id: str | None = None,
@@ -66,6 +68,7 @@ class SupportBundleExporter:
             dashboard_snapshot=dashboard_payload,
             session_state=session_state,
             selected_run_manifest=selected_run_manifest,
+            platform_validation_matrix=platform_validation_matrix,
             selected_job_id=selected_job_id,
         )
 
@@ -106,6 +109,8 @@ class SupportBundleExporter:
             "config_summary.json": config_summary,
             "environment_summary.json": environment_summary,
         }
+        if platform_validation_matrix is not None:
+            entries["platform_validation_matrix.json"] = platform_validation_matrix
         if session_state is not None:
             entries["session_state.json"] = session_state
         if selected_run_manifest is not None:
@@ -148,16 +153,18 @@ class SupportBundleExporter:
         dashboard_snapshot: dict[str, object],
         session_state: dict[str, object] | None,
         selected_run_manifest: dict[str, object] | None,
+        platform_validation_matrix: dict[str, object] | None,
         selected_job_id: str | None,
     ) -> dict[str, str]:
-        raw_paths = {
-            str(self.config.config_dir),
-            str(resolve_runtime_path(self.config.app.default_output_root)),
-            str(resolve_runtime_path(self.config.app.preview_cache_dir)),
-            str(resolve_runtime_path(self.config.app.state_db_path)),
-            str(resolve_runtime_path(self.config.support.bundle_output_dir)),
-            *[str(resolve_runtime_path(path)) for path in self.config.paths.model_dirs],
-        }
+        raw_paths: set[str] = set()
+        self._add_path_with_variants(raw_paths, self.config.config_dir)
+        self._add_path_with_variants(raw_paths, resolve_runtime_path(self.config.app.default_output_root))
+        self._add_path_with_variants(raw_paths, resolve_runtime_path(self.config.app.preview_cache_dir))
+        self._add_path_with_variants(raw_paths, resolve_runtime_path(self.config.app.state_db_path))
+        self._add_path_with_variants(raw_paths, resolve_runtime_path(self.config.support.bundle_output_dir))
+        self._add_path_with_variants(raw_paths, Path(self.config.config_dir).resolve().parent)
+        for model_dir in self.config.paths.model_dirs:
+            self._add_path_with_variants(raw_paths, resolve_runtime_path(model_dir))
         for job in dashboard_snapshot.get("jobs", []):
             if isinstance(job, dict):
                 raw_paths.update(
@@ -172,21 +179,21 @@ class SupportBundleExporter:
                 if isinstance(value, str) and ("path" in key or key in {"last_target", "selected_source"})
             )
         if selected_run_manifest:
-            raw_paths.update(
-                value
-                for value in selected_run_manifest.get("input_files", [])
-                if isinstance(value, str)
-            )
-            raw_paths.update(
-                value
-                for value in selected_run_manifest.get("output_files", [])
-                if isinstance(value, str)
-            )
+            for value in selected_run_manifest.get("input_files", []):
+                if isinstance(value, str):
+                    self._add_path_with_variants(raw_paths, value)
+            for value in selected_run_manifest.get("output_files", []):
+                if isinstance(value, str):
+                    self._add_path_with_variants(raw_paths, value)
+        if platform_validation_matrix:
+            repo_root = platform_validation_matrix.get("repo_root")
+            if isinstance(repo_root, str):
+                self._add_path_with_variants(raw_paths, repo_root)
         if selected_job_id:
             record = self.store.get_job(selected_job_id)
             if record is not None:
-                raw_paths.add(record.source_path)
-                raw_paths.add(record.payload_path)
+                self._add_path_with_variants(raw_paths, record.source_path)
+                self._add_path_with_variants(raw_paths, record.payload_path)
         return dict(
             sorted(
                 ((path, self._display_path(path)) for path in raw_paths if path),
@@ -224,3 +231,20 @@ class SupportBundleExporter:
     def _is_path_like_key(self, key_name: str) -> bool:
         lowered = key_name.lower()
         return "path" in lowered or lowered.endswith("_dir") or lowered.endswith("_files")
+
+    def _add_path_with_variants(self, raw_paths: set[str], value: str | Path) -> None:
+        try:
+            resolved = resolve_runtime_path(value)
+        except OSError:
+            resolved = Path(value)
+        candidates = {str(resolved), str(value)}
+        for candidate in list(candidates):
+            if not candidate:
+                continue
+            raw_paths.add(candidate)
+            try:
+                wsl_variant = windows_to_wsl_path(Path(candidate))
+            except OSError:
+                continue
+            if wsl_variant and wsl_variant != candidate:
+                raw_paths.add(wsl_variant)

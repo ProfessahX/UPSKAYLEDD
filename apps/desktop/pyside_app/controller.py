@@ -139,6 +139,7 @@ class DesktopController(QObject):
         if stage_id == "upscale" and key in {"target_width", "target_height"}:
             policy_key = "width" if key == "target_width" else "height"
             self.current_project.manifest.output_policy[policy_key] = value
+            self._refresh_delivery_guidance()
         self._emit_project()
 
     def update_output_policy(self, key: str, value: Any) -> None:
@@ -162,6 +163,7 @@ class DesktopController(QObject):
                 if key in {"width", "height"}:
                     stage_key = "target_width" if key == "width" else "target_height"
                     stage.settings[stage_key] = value
+        self._refresh_delivery_guidance()
         self._emit_project()
 
     def ingest_target(self, target: str) -> None:
@@ -350,6 +352,9 @@ class DesktopController(QObject):
         self.refresh_dashboard()
         self.set_page("dashboard")
 
+    def shutdown(self, timeout_msecs: int = 5000) -> None:
+        self.thread_pool.waitForDone(timeout_msecs)
+
     def _dispatch_run(self, *, execute: bool, execute_degraded: bool) -> None:
         if self.current_project is None:
             self.errorRaised.emit("Analyze a source before queueing or running it.")
@@ -407,6 +412,7 @@ class DesktopController(QObject):
 
     def _runtime_status_payload(self) -> dict[str, Any]:
         checks = list((self.doctor_payload or {}).get("checks", []))
+        platform_summary = str((self.doctor_payload or {}).get("platform_summary", "")).strip()
         healthy = sum(1 for item in checks if item.get("status") == "healthy")
         degraded = sum(1 for item in checks if item.get("status") == "degraded")
         missing = sum(1 for item in checks if item.get("status") == "missing")
@@ -443,6 +449,7 @@ class DesktopController(QObject):
                 "doctor_summary": copy.checking.doctor_summary,
                 "model_summary": copy.checking.model_summary,
                 "action": copy.checking.action,
+                "platform_summary": copy.platform_empty,
                 "status": "checking",
                 "focus_checks": [],
                 "pack_rows": [],
@@ -471,6 +478,7 @@ class DesktopController(QObject):
                 + (f" · {recommended_missing} recommended pack missing" if packs else "")
             ),
             "action": status_copy.action,
+            "platform_summary": platform_summary or copy.platform_empty,
             "status": status,
             "focus_checks": focus_checks,
             "pack_rows": pack_rows,
@@ -556,8 +564,17 @@ class DesktopController(QObject):
             "backend_selection": dict(self.current_project.backend_selection),
             "project_manifest": self.current_project.manifest.to_dict(),
             "batch_summary": dict(self.current_project.batch_summary),
+            "delivery_guidance": dict(self.current_project.delivery_guidance),
         }
         self.projectChanged.emit(payload)
+
+    def _refresh_delivery_guidance(self) -> None:
+        if self.current_project is None:
+            return
+        self.current_project.delivery_guidance = self.service.build_delivery_guidance(
+            reports=list(self.current_project.inspection_reports),
+            output_policy=dict(self.current_project.manifest.output_policy),
+        )
 
     def _load_session(self) -> DesktopSessionState:
         defaults = DesktopSessionState(

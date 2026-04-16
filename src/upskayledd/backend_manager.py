@@ -7,7 +7,12 @@ from pathlib import Path
 from upskayledd.bootstrap import ModelPackInstaller
 from upskayledd.config import AppConfig
 from upskayledd.core.paths import resolve_runtime_path
-from upskayledd.integrations.env_probe import ToolStatus, classify_path_rules, detect_environment
+from upskayledd.integrations.env_probe import (
+    ToolStatus,
+    classify_path_rules,
+    detect_environment,
+    detect_platform_context,
+)
 from upskayledd.models import BackendSelection, DoctorCheck, DoctorReport, utc_now
 
 
@@ -17,6 +22,9 @@ class BackendManager:
         self.environment = environment or detect_environment()
 
     def doctor(self) -> DoctorReport:
+        platform_context = detect_platform_context()
+        safe_platform_context = dict(platform_context)
+        safe_platform_context.pop("python_executable", None)
         checks = [
             DoctorCheck(
                 name=status.name,
@@ -33,7 +41,16 @@ class BackendManager:
             warnings.append("VapourSynth source plugin is missing; canonical execution will fall back until FFMS2 is available.")
         if not self.environment.get("vspipe", ToolStatus("vspipe", False, "missing")).available:
             warnings.append("vspipe is missing; canonical execution cannot render frames into ffmpeg.")
-        return DoctorReport(created_at=utc_now(), checks=checks, warnings=warnings)
+        if platform_context.get("is_wsl"):
+            warnings.append(
+                "WSL runtime detected; Linux-side dependencies and GPU/runtime availability can differ from the host Windows install."
+            )
+        return DoctorReport(
+            created_at=utc_now(),
+            checks=checks,
+            warnings=warnings,
+            platform_context=safe_platform_context,
+        )
 
     def choose_backend(self) -> BackendSelection:
         ffmpeg_ok = self.environment["ffmpeg"].available and self.environment["ffprobe"].available

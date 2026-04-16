@@ -63,3 +63,9 @@ category = "model_pack"
 priority = 80
 missing = "Install the curated DPIR cleanup pack so the default cleanup stage can run as recommended."
 only_when_recommended = true
+
+[contexts.wsl_environment]
+title = "Decide on a Linux-side WSL runtime plan"
+category = "platform"
+priority = 96
+missing = "WSL is running its own Linux-side runtime. Install VapourSynth, vs-mlrt, source plugins, and model packs inside WSL, or prefer the native Windows build if that is where your working stack already lives."

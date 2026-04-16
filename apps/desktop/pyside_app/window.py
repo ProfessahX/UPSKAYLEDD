@@ -71,6 +71,10 @@ class IngestPage(QWidget):
         self.runtime_headline = QLabel(self.ui_config.copy.runtime.checking.headline)
         self.runtime_headline.setStyleSheet("font-size: 18px; font-weight: 700;")
         runtime_layout.addWidget(self.runtime_headline)
+        self.runtime_platform_summary = QLabel(self.ui_config.copy.runtime.platform_empty)
+        self.runtime_platform_summary.setWordWrap(True)
+        self.runtime_platform_summary.setStyleSheet("color: #9aa8b7; font-size: 12px;")
+        runtime_layout.addWidget(self.runtime_platform_summary)
         self.runtime_doctor_summary = QLabel(self.ui_config.copy.runtime.checking.doctor_summary)
         self.runtime_doctor_summary.setWordWrap(True)
         runtime_layout.addWidget(self.runtime_doctor_summary)
@@ -236,6 +240,7 @@ class IngestPage(QWidget):
     def apply_runtime_status(self, payload: dict[str, Any] | None) -> None:
         payload = dict(payload or {})
         self.runtime_headline.setText(payload.get("headline", self.ui_config.copy.runtime.checking.headline))
+        self.runtime_platform_summary.setText(payload.get("platform_summary", self.ui_config.copy.runtime.platform_empty))
         self.runtime_doctor_summary.setText(payload.get("doctor_summary", self.ui_config.copy.runtime.checking.doctor_summary))
         self.runtime_model_summary.setText(
             payload.get("model_summary", self.ui_config.copy.runtime.checking.model_summary)
@@ -580,6 +585,31 @@ class SummaryPage(QWidget):
             f"- {stage.label}: {'enabled' if stage.enabled else 'skipped'}"
             for stage in project.manifest.resolved_pipeline_stages
         )
+        delivery_guidance = dict(project.delivery_guidance)
+        selected_messages = [str(item).strip() for item in delivery_guidance.get("selected_messages", []) if str(item).strip()]
+        if selected_messages:
+            recommendation_lines.extend(
+                [
+                    "",
+                    f"{self.ui_config.copy.summary.delivery_guidance_label}:",
+                ]
+            )
+            recommendation_lines.extend(f"- {message}" for message in selected_messages)
+        alternative_profiles = list(delivery_guidance.get("alternative_profiles", []))
+        if alternative_profiles:
+            recommendation_lines.extend(
+                [
+                    "",
+                    f"{self.ui_config.copy.summary.alternative_profiles_label}:",
+                ]
+            )
+            for item in alternative_profiles[:3]:
+                label = str(item.get("label", item.get("id", "Other lane"))).strip() or "Other lane"
+                messages = [str(message).strip() for message in item.get("messages", []) if str(message).strip()]
+                if messages:
+                    recommendation_lines.append(f"- {label}: {messages[0]}")
+                else:
+                    recommendation_lines.append(f"- {label}")
 
         warning_lines = []
         if batch_summary.get("source_count", 0) > 1:
@@ -1279,6 +1309,153 @@ def build_run_summary(payload: dict[str, Any] | None) -> str:
     return "\n".join(lines)
 
 
+def build_media_metrics_snapshot(payload: dict[str, Any] | None) -> dict[str, list[Any]]:
+    if payload is None:
+        return {"rows": [], "guidance": []}
+    encode_settings = dict(payload.get("encode_settings", {}))
+    media_metrics = dict(encode_settings.get("media_metrics", {}))
+    input_metrics = dict(media_metrics.get("input", {}))
+    output_metrics = dict(media_metrics.get("output", {}))
+    if not input_metrics and not output_metrics:
+        return {"rows": [], "guidance": []}
+
+    rows: list[tuple[str, str, str]] = [
+        ("Container", _format_container(input_metrics), _format_container(output_metrics)),
+        ("File size", _format_size(input_metrics.get("size_bytes")), _format_size(output_metrics.get("size_bytes"))),
+        ("Duration", _format_duration(input_metrics.get("duration_seconds")), _format_duration(output_metrics.get("duration_seconds"))),
+        ("Video", _format_video_metrics(dict(input_metrics.get("video", {}))), _format_video_metrics(dict(output_metrics.get("video", {})))),
+        ("Audio", _format_audio_metrics(dict(input_metrics.get("audio", {}))), _format_audio_metrics(dict(output_metrics.get("audio", {})))),
+        ("Subtitles", _format_subtitle_metrics(dict(input_metrics.get("subtitle", {}))), _format_subtitle_metrics(dict(output_metrics.get("subtitle", {})))),
+        (
+            "Chapters",
+            str(_safe_int(input_metrics.get("chapter_count")) or 0),
+            str(_safe_int(output_metrics.get("chapter_count")) or 0),
+        ),
+    ]
+    guidance = [
+        str(item).strip()
+        for item in encode_settings.get("conversion_guidance", [])
+        if str(item).strip()
+    ]
+    if not guidance:
+        comparison = dict(media_metrics.get("comparison", {}))
+        comparison_guidance = [
+            str(item).strip()
+            for item in comparison.get("guidance", [])
+            if str(item).strip()
+        ]
+        derived_guidance = [
+            line.removeprefix("- ").strip()
+            for line in _format_media_comparison_lines(comparison)
+            if line.strip()
+        ]
+        guidance = list(dict.fromkeys([*comparison_guidance, *derived_guidance]))
+    return {"rows": rows, "guidance": guidance}
+
+
+def build_media_change_highlights(payload: dict[str, Any] | None) -> list[dict[str, str]]:
+    if payload is None:
+        return []
+    encode_settings = dict(payload.get("encode_settings", {}))
+    media_metrics = dict(encode_settings.get("media_metrics", {}))
+    input_metrics = dict(media_metrics.get("input", {}))
+    output_metrics = dict(media_metrics.get("output", {}))
+    comparison = dict(media_metrics.get("comparison", {}))
+    input_video = dict(input_metrics.get("video", {}))
+    output_video = dict(output_metrics.get("video", {}))
+    guidance = [
+        str(item).strip()
+        for item in encode_settings.get("conversion_guidance", [])
+        if str(item).strip()
+    ] or [
+        str(item).strip()
+        for item in comparison.get("guidance", [])
+        if str(item).strip()
+    ]
+
+    highlights: list[dict[str, str]] = []
+
+    ratio_value = _safe_float(comparison.get("size_ratio"))
+    if ratio_value is not None:
+        if ratio_value > 1.05:
+            size_tone = "danger"
+        elif ratio_value < 0.60:
+            size_tone = "warning"
+        else:
+            size_tone = "success"
+        highlights.append(
+            {
+                "title": "Size",
+                "value": _format_ratio_percent(ratio_value),
+                "detail": _pick_guidance(
+                    guidance,
+                    "larger than the source sample",
+                    "shrank aggressively",
+                    "current delivery settings",
+                )
+                or f"Output landed at {ratio_value:.2f}x the source sample size.",
+                "tone": size_tone,
+            }
+        )
+
+    input_resolution = _format_resolution(input_video)
+    output_resolution = _format_resolution(output_video)
+    if input_resolution != "unknown resolution" and output_resolution != "unknown resolution":
+        highlights.append(
+            {
+                "title": "Resolution",
+                "value": f"{input_resolution} -> {output_resolution}",
+                "detail": (
+                    f"Resolution scale is {_safe_float(comparison.get('resolution_scale')):.2f}x."
+                    if _safe_float(comparison.get("resolution_scale")) is not None
+                    else "Source and output resolution are shown here for quick review."
+                ),
+                "tone": "info",
+            }
+        )
+
+    input_fps_value = _safe_float(input_video.get("avg_frame_rate_fps"))
+    output_fps_value = _safe_float(output_video.get("avg_frame_rate_fps"))
+    if input_fps_value is not None and output_fps_value is not None:
+        if abs(input_fps_value - output_fps_value) >= 0.5:
+            highlights.append(
+                {
+                    "title": "Cadence",
+                    "value": f"{input_fps_value:.2f} -> {output_fps_value:.2f} fps",
+                    "detail": _pick_guidance(guidance, "Frame rate changed")
+                    or "Frame rate changed materially between source and output. Review motion before committing a long batch.",
+                    "tone": "warning",
+                }
+            )
+
+    subtitle_stream_delta = _safe_int(comparison.get("subtitle_stream_delta")) or 0
+    chapter_delta = _safe_int(comparison.get("chapter_delta")) or 0
+    audio_changed = bool(comparison.get("audio_codec_changed"))
+    subtitle_changed = bool(comparison.get("subtitle_codec_changed"))
+    if subtitle_stream_delta < 0 or chapter_delta < 0:
+        stream_value = "Loss detected"
+        stream_detail = "One or more subtitle or chapter streams dropped during delivery. Review the manifest before trusting this lane."
+        stream_tone = "danger"
+    elif audio_changed or subtitle_changed:
+        stream_value = "Delivery changed"
+        stream_detail = "Audio or subtitle delivery changed for compatibility or encode reasons. Hover here, then inspect the metrics table if you need the specifics."
+        stream_tone = "warning"
+    else:
+        stream_value = "Preserved"
+        stream_detail = "Audio, subtitle, and chapter counts held steady between the source and output sample."
+        stream_tone = "success"
+    highlights.append(
+        {
+            "title": "Streams",
+            "value": stream_value,
+            "detail": stream_detail,
+            "tone": stream_tone,
+        }
+    )
+
+    return highlights[:4]
+
+
 def _format_media_metrics_block(label: str, metrics: dict[str, Any]) -> list[str]:
     video = dict(metrics.get("video", {}))
     audio = dict(metrics.get("audio", {}))
@@ -1287,7 +1464,7 @@ def _format_media_metrics_block(label: str, metrics: dict[str, Any]) -> list[str
         f"{label}: {_format_container(metrics)} · {_format_duration(metrics.get('duration_seconds'))} · {_format_size(metrics.get('size_bytes'))} · {_format_bitrate(metrics.get('overall_bitrate_bps'))}",
         f"- Video: {_format_video_metrics(video)}",
         f"- Audio: {_format_audio_metrics(audio)}",
-        f"- Subtitles: {_format_subtitle_metrics(subtitle)} · Chapters: {int(metrics.get('chapter_count', 0) or 0)}",
+        f"- Subtitles: {_format_subtitle_metrics(subtitle)} · Chapters: {_safe_int(metrics.get('chapter_count')) or 0}",
     ]
 
 
@@ -1295,15 +1472,15 @@ def _format_media_comparison_lines(comparison: dict[str, Any]) -> list[str]:
     if not comparison:
         return []
     lines: list[str] = []
-    size_ratio = comparison.get("size_ratio")
-    overall_bitrate_ratio = comparison.get("overall_bitrate_ratio")
-    resolution_scale = comparison.get("resolution_scale")
-    if size_ratio not in (None, ""):
-        lines.append(f"- Size ratio: {float(size_ratio):.2f}x")
-    if overall_bitrate_ratio not in (None, ""):
-        lines.append(f"- Overall bitrate ratio: {float(overall_bitrate_ratio):.2f}x")
-    if resolution_scale not in (None, ""):
-        lines.append(f"- Resolution scale: {float(resolution_scale):.2f}x")
+    size_ratio = _safe_float(comparison.get("size_ratio"))
+    overall_bitrate_ratio = _safe_float(comparison.get("overall_bitrate_ratio"))
+    resolution_scale = _safe_float(comparison.get("resolution_scale"))
+    if size_ratio is not None:
+        lines.append(f"- Size ratio: {size_ratio:.2f}x")
+    if overall_bitrate_ratio is not None:
+        lines.append(f"- Overall bitrate ratio: {overall_bitrate_ratio:.2f}x")
+    if resolution_scale is not None:
+        lines.append(f"- Resolution scale: {resolution_scale:.2f}x")
     if comparison.get("container_changed"):
         lines.append("- Container changed during delivery.")
     if comparison.get("video_codec_changed"):
@@ -1312,13 +1489,34 @@ def _format_media_comparison_lines(comparison: dict[str, Any]) -> list[str]:
         lines.append("- Audio codec changed during delivery.")
     if comparison.get("subtitle_codec_changed"):
         lines.append("- Subtitle codec changed during delivery.")
-    subtitle_stream_delta = comparison.get("subtitle_stream_delta")
+    subtitle_stream_delta = _safe_int(comparison.get("subtitle_stream_delta"))
     if subtitle_stream_delta not in (None, 0):
-        lines.append(f"- Subtitle stream delta: {int(subtitle_stream_delta):+d}")
-    chapter_delta = comparison.get("chapter_delta")
+        lines.append(f"- Subtitle stream delta: {subtitle_stream_delta:+d}")
+    chapter_delta = _safe_int(comparison.get("chapter_delta"))
     if chapter_delta not in (None, 0):
-        lines.append(f"- Chapter delta: {int(chapter_delta):+d}")
+        lines.append(f"- Chapter delta: {chapter_delta:+d}")
     return lines
+
+
+def _safe_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError, OverflowError):
+            return None
 
 
 def _format_container(metrics: dict[str, Any]) -> str:
@@ -1388,6 +1586,27 @@ def _format_subtitle_metrics(subtitle: dict[str, Any]) -> str:
     if languages:
         details.append(languages)
     return " · ".join(details)
+
+
+def _pick_guidance(guidance: list[str], *needles: str) -> str:
+    lowered_needles = tuple(needle.lower() for needle in needles)
+    for item in guidance:
+        item_lower = item.lower()
+        if any(needle in item_lower for needle in lowered_needles):
+            return item
+    return ""
+
+
+def _format_ratio_percent(value: float) -> str:
+    return f"{value * 100:.0f}% of source"
+
+
+def _format_resolution(video: dict[str, Any]) -> str:
+    width = video.get("width")
+    height = video.get("height")
+    if width in (None, "") or height in (None, ""):
+        return "unknown resolution"
+    return f"{int(width)}x{int(height)}"
 
 
 def build_dashboard_focus_text(overview: dict[str, Any] | None, copy: DashboardCopyConfig) -> str:
@@ -1485,6 +1704,20 @@ class DashboardPage(QWidget):
         self.selected_job_label.setStyleSheet("color: #9aa8b7;")
         layout.addWidget(self.selected_job_label)
 
+        highlights_frame = QFrame()
+        highlights_frame.setObjectName("panelFrame")
+        highlights_layout = QVBoxLayout(highlights_frame)
+        highlights_layout.setContentsMargins(16, 16, 16, 16)
+        highlights_layout.setSpacing(10)
+        highlights_title = QLabel(self.ui_config.copy.dashboard.highlights_title)
+        highlights_title.setObjectName("sectionTitle")
+        highlights_layout.addWidget(highlights_title)
+        self.highlights_row = QHBoxLayout()
+        self.highlights_row.setSpacing(10)
+        highlights_layout.addLayout(self.highlights_row)
+        _set_tooltip(highlights_frame, self.ui_config.copy.tooltip("dashboard_highlights"))
+        layout.addWidget(highlights_frame)
+
         action_row = QHBoxLayout()
         self.resume_button = QPushButton(self.ui_config.copy.dashboard.mark_queued_button)
         self.resume_button.clicked.connect(lambda: self.controller.resume_selected_job(execute=False, execute_degraded=False))
@@ -1528,6 +1761,43 @@ class DashboardPage(QWidget):
         run_summary_title = QLabel(self.ui_config.copy.dashboard.run_summary_title)
         run_summary_title.setObjectName("sectionTitle")
         layout.addWidget(run_summary_title)
+
+        metrics_title = QLabel(self.ui_config.copy.dashboard.metrics_title)
+        metrics_title.setObjectName("sectionTitle")
+        layout.addWidget(metrics_title)
+
+        metrics_frame = QFrame()
+        metrics_frame.setObjectName("panelFrame")
+        metrics_layout = QVBoxLayout(metrics_frame)
+        metrics_layout.setContentsMargins(14, 14, 14, 14)
+        metrics_layout.setSpacing(10)
+
+        self.metrics_table = QTableWidget(0, 3)
+        self.metrics_table.setHorizontalHeaderLabels(
+            [
+                self.ui_config.copy.dashboard.metrics_metric_label,
+                self.ui_config.copy.dashboard.metrics_before_label,
+                self.ui_config.copy.dashboard.metrics_after_label,
+            ]
+        )
+        self.metrics_table.verticalHeader().setVisible(False)
+        self.metrics_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.metrics_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.metrics_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.metrics_table.setMinimumHeight(200)
+        self.metrics_table.horizontalHeader().setStretchLastSection(True)
+        metrics_layout.addWidget(self.metrics_table)
+
+        guidance_title = QLabel(self.ui_config.copy.dashboard.metrics_guidance_title)
+        guidance_title.setObjectName("sectionTitle")
+        metrics_layout.addWidget(guidance_title)
+
+        self.metrics_guidance_view = QTextEdit()
+        self.metrics_guidance_view.setReadOnly(True)
+        self.metrics_guidance_view.setMinimumHeight(88)
+        self.metrics_guidance_view.setPlainText(self.ui_config.copy.dashboard.metrics_empty)
+        metrics_layout.addWidget(self.metrics_guidance_view)
+        layout.addWidget(metrics_frame)
 
         self.run_summary_view = QTextEdit()
         self.run_summary_view.setReadOnly(True)
@@ -1604,6 +1874,8 @@ class DashboardPage(QWidget):
 
     def apply_run_manifest(self, payload: dict[str, Any] | None) -> None:
         if payload is None:
+            self._apply_highlights(None)
+            self._apply_metrics_snapshot(None)
             self.run_summary_view.setPlainText(self.ui_config.copy.dashboard.run_summary_empty)
             self.manifest_view.setPlainText(self.ui_config.copy.dashboard.manifest_empty)
             self.selected_job_label.setText(self.ui_config.copy.dashboard.selection_empty)
@@ -1612,9 +1884,79 @@ class DashboardPage(QWidget):
         job_id = self.controller.session.selected_job_id
         execution_mode = payload.get("encode_settings", {}).get("execution_mode", "not run yet")
         self.selected_job_label.setText(f"Selected job {job_id[:8]} · {execution_mode}")
+        self._apply_highlights(payload)
+        self._apply_metrics_snapshot(payload)
         self.run_summary_view.setPlainText(build_run_summary(payload))
         self.manifest_view.setPlainText(json.dumps(payload, indent=2, sort_keys=True))
         self._load_review_media(job_id, payload)
+
+    def _apply_highlights(self, payload: dict[str, Any] | None) -> None:
+        highlights = build_media_change_highlights(payload)
+        self._clear_highlights()
+        if not highlights:
+            empty_label = QLabel(self.ui_config.copy.dashboard.highlights_empty)
+            empty_label.setWordWrap(True)
+            empty_label.setStyleSheet("color: #9aa8b7;")
+            self.highlights_row.addWidget(empty_label, 1)
+            return
+        for highlight in highlights:
+            card = QFrame()
+            card.setObjectName("panelFrame")
+            card.setMinimumHeight(92)
+            card.setToolTip(str(highlight.get("detail", "")))
+            card.setStyleSheet(self._highlight_card_style(str(highlight.get("tone", "info"))))
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(14, 12, 14, 12)
+            card_layout.setSpacing(6)
+            title = QLabel(str(highlight.get("title", "")))
+            title.setStyleSheet("font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #9aa8b7;")
+            card_layout.addWidget(title)
+            value = QLabel(str(highlight.get("value", "")))
+            value.setWordWrap(True)
+            value.setStyleSheet("font-size: 18px; font-weight: 700; color: #f4f8fb;")
+            card_layout.addWidget(value, 1)
+            self.highlights_row.addWidget(card, 1)
+
+    def _clear_highlights(self) -> None:
+        while self.highlights_row.count():
+            item = self.highlights_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _highlight_card_style(self, tone: str) -> str:
+        accents = {
+            "success": "#2f9e74",
+            "warning": "#d8a93d",
+            "danger": "#c75d5d",
+            "info": "#4d86c7",
+        }
+        accent = accents.get(tone, accents["info"])
+        return (
+            "QFrame#panelFrame {"
+            "background-color: rgba(19, 25, 32, 0.94);"
+            "border: 1px solid rgba(255, 255, 255, 0.07);"
+            f"border-left: 3px solid {accent};"
+            "border-radius: 14px;"
+            "}"
+        )
+
+    def _apply_metrics_snapshot(self, payload: dict[str, Any] | None) -> None:
+        snapshot = build_media_metrics_snapshot(payload)
+        rows = list(snapshot.get("rows", []))
+        guidance = [str(item).strip() for item in snapshot.get("guidance", []) if str(item).strip()]
+        self.metrics_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            metric, before, after = row
+            for column, value in enumerate((metric, before, after)):
+                self.metrics_table.setItem(row_index, column, QTableWidgetItem(value))
+        if not rows:
+            self.metrics_guidance_view.setPlainText(self.ui_config.copy.dashboard.metrics_empty)
+            return
+        if guidance:
+            self.metrics_guidance_view.setPlainText("\n".join(f"- {line}" for line in guidance))
+        else:
+            self.metrics_guidance_view.setPlainText(self.ui_config.copy.dashboard.metrics_guidance_empty)
 
     def _job_activated(self, row: int, _: int) -> None:
         item = self.jobs_table.item(row, 0)
@@ -1969,6 +2311,7 @@ class DesktopMainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.workspace_page.preview_compare.clear_preview()
         self.dashboard_page.review_compare.clear_preview()
+        self.controller.shutdown()
         super().closeEvent(event)
 
 

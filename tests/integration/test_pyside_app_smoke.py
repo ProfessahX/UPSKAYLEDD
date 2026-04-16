@@ -97,6 +97,10 @@ class PySideAppSmokeTests(unittest.TestCase):
                 app,
                 lambda: window.ingest_page.runtime_doctor_summary.text() != "Waiting for the first environment refresh.",
             )
+            self.assertNotEqual(
+                window.ingest_page.runtime_platform_summary.text(),
+                window.ui_config.copy.runtime.platform_empty,
+            )
             self.assertGreater(window.ingest_page.focus_table.rowCount(), 0)
             self.assertGreater(window.ingest_page.pack_table.rowCount(), 0)
             self.assertGreater(window.ingest_page.locations_stack.count(), 0)
@@ -107,6 +111,9 @@ class PySideAppSmokeTests(unittest.TestCase):
             self.assertGreater(window.workspace_page.stage_rail.count(), 0)
             self.assertEqual(window.summary_page.batch_table.rowCount(), 2)
             self.assertTrue(window.summary_page.review_flagged_button.isEnabled())
+            summary_text = window.summary_page.recommendation_view.toPlainText()
+            self.assertIn(f"{window.ui_config.copy.summary.delivery_guidance_label}:", summary_text)
+            self.assertIn(f"{window.ui_config.copy.summary.alternative_profiles_label}:", summary_text)
 
             window.summary_page.review_flagged_button.click()
             app.processEvents()
@@ -143,6 +150,7 @@ class PySideAppSmokeTests(unittest.TestCase):
             app.processEvents()
             self.assertEqual(controller.current_project.manifest.output_policy["encode_profile_id"], "h264_compatibility_mp4")
             self.assertEqual(controller.current_project.manifest.output_policy["container"], "mp4")
+            self.assertEqual(controller.current_project.delivery_guidance["selected_profile_id"], "h264_compatibility_mp4")
 
             controller.select_stage("cleanup")
             app.processEvents()

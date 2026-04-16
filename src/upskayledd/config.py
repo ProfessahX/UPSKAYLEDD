@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import platform
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +22,7 @@ class AppSettings:
     output_collision_template: str
     state_db_path: str
     preview_cache_dir: str
+    scratch_dir: str
     project_history_scope: str
     max_recent_targets: int
     supported_extensions: tuple[str, ...]
@@ -78,6 +81,7 @@ class RuntimeActionConfig:
     max_actions: int
     checks: dict[str, RuntimeActionRule]
     packs: dict[str, RuntimeActionRule]
+    contexts: dict[str, RuntimeActionRule]
 
 
 @dataclass(slots=True, frozen=True)
@@ -187,6 +191,14 @@ class ConversionGuidanceConfig:
 
 
 @dataclass(slots=True, frozen=True)
+class DeliveryGuidanceConfig:
+    archive_profile_ids: tuple[str, ...]
+    smaller_profile_ids: tuple[str, ...]
+    compatibility_profile_ids: tuple[str, ...]
+    messages: dict[str, str]
+
+
+@dataclass(slots=True, frozen=True)
 class AppConfig:
     config_dir: Path
     app: AppSettings
@@ -200,6 +212,7 @@ class AppConfig:
     profiles: tuple[ProfileDefinition, ...]
     encode: EncodeProfileConfig
     conversion_guidance: ConversionGuidanceConfig
+    delivery_guidance: DeliveryGuidanceConfig
     model_registry: ModelRegistryConfig
     model_packs: ModelPackConfig
     fallback_filters: FallbackFilterConfig
@@ -319,7 +332,30 @@ def _load_model_packs(config_dir: Path) -> ModelPackConfig:
     return ModelPackConfig(packs=packs)
 
 
-def _load_conversion_guidance(config_dir: Path) -> ConversionGuidanceConfig:
+def _validate_encode_profile_ids(
+    profile_ids: tuple[str, ...],
+    encode_config: EncodeProfileConfig,
+    *,
+    setting_name: str,
+) -> tuple[str, ...]:
+    known_profile_ids = {profile.id for profile in encode_config.profiles}
+    invalid_ids = [profile_id for profile_id in profile_ids if profile_id not in known_profile_ids]
+    if invalid_ids:
+        invalid_blob = ", ".join(sorted(invalid_ids))
+        raise ConfigError(f"{setting_name} references unknown encode profile id(s): {invalid_blob}")
+    return profile_ids
+
+
+def _is_wsl_environment() -> bool:
+    if os.name == "nt":
+        return False
+    release = platform.uname().release.lower()
+    if "microsoft" in release or "wsl" in release:
+        return True
+    return bool(os.environ.get("WSL_DISTRO_NAME"))
+
+
+def _load_conversion_guidance(config_dir: Path, encode_config: EncodeProfileConfig) -> ConversionGuidanceConfig:
     payload = _read_toml(config_dir / "conversion_guidance.toml")
     thresholds = payload.get("thresholds", {})
     profiles = payload.get("profiles", {})
@@ -327,12 +363,80 @@ def _load_conversion_guidance(config_dir: Path) -> ConversionGuidanceConfig:
         str(key): str(value)
         for key, value in payload.get("messages", {}).items()
     }
+    compatibility_ids = tuple(str(item) for item in profiles.get("compatibility_ids", []))
     return ConversionGuidanceConfig(
         oversized_ratio=float(thresholds.get("oversized_ratio", 1.05)),
         smaller_ratio=float(thresholds.get("smaller_ratio", 0.95)),
         much_smaller_ratio=float(thresholds.get("much_smaller_ratio", 0.70)),
         fps_change_tolerance=float(thresholds.get("fps_change_tolerance", 0.35)),
-        compatibility_profile_ids=tuple(str(item) for item in profiles.get("compatibility_ids", [])),
+        compatibility_profile_ids=_validate_encode_profile_ids(
+            compatibility_ids,
+            encode_config,
+            setting_name="config/conversion_guidance.toml profiles.compatibility_ids",
+        ),
+        messages=messages,
+    )
+
+
+def _load_delivery_guidance(config_dir: Path, encode_config: EncodeProfileConfig) -> DeliveryGuidanceConfig:
+    guidance_path = config_dir / "delivery_guidance.toml"
+    if not guidance_path.exists():
+        default_profile_id = encode_config.default_profile_id
+        smaller_ids = tuple(
+            profile.id
+            for profile in encode_config.profiles
+            if "smaller" in profile.id and profile.id != default_profile_id
+        )
+        compatibility_ids = tuple(
+            profile.id
+            for profile in encode_config.profiles
+            if "compatibility" in profile.id or profile.container == "mp4"
+        )
+        archive_ids = tuple(dict.fromkeys((default_profile_id, *smaller_ids)))
+        return DeliveryGuidanceConfig(
+            archive_profile_ids=archive_ids,
+            smaller_profile_ids=smaller_ids,
+            compatibility_profile_ids=compatibility_ids,
+            messages={
+                "archive": "Archive-focused HEVC is the safest default for preservation-minded batches.",
+                "smaller": "This lane leans harder toward smaller files; spot-check fine detail before running a whole season.",
+                "compatibility": "This lane favors easier playback on picky devices and older apps.",
+                "subtitle_preserve": "Source includes image-based subtitles, and this lane keeps the safest subtitle-preservation setup.",
+                "subtitle_risk": "Source includes image-based subtitles, and this lane may convert or drop them.",
+                "audio_preserve": "Source includes up to {channels} audio channels, and this lane keeps the original mix.",
+                "audio_transcode": "Source includes up to {channels} audio channels, and this lane transcodes audio to {audio_codec} for compatibility.",
+                "upscale_target": "Target output is {width}x{height}, about {scale}x the source pixel count.",
+                "chapters_preserve": "Chapters stay enabled on this lane.",
+                "chapters_drop": "Chapters are disabled on this lane.",
+                "batch_outliers": "This batch contains source outliers, so validate delivery on a flagged episode before queueing everything.",
+            },
+        )
+
+    payload = _read_toml(guidance_path)
+    profiles = payload.get("profiles", {})
+    messages = {
+        str(key): str(value)
+        for key, value in payload.get("messages", {}).items()
+    }
+    archive_ids = tuple(str(item) for item in profiles.get("archive_ids", []))
+    smaller_ids = tuple(str(item) for item in profiles.get("smaller_ids", []))
+    compatibility_ids = tuple(str(item) for item in profiles.get("compatibility_ids", []))
+    return DeliveryGuidanceConfig(
+        archive_profile_ids=_validate_encode_profile_ids(
+            archive_ids,
+            encode_config,
+            setting_name="config/delivery_guidance.toml profiles.archive_ids",
+        ),
+        smaller_profile_ids=_validate_encode_profile_ids(
+            smaller_ids,
+            encode_config,
+            setting_name="config/delivery_guidance.toml profiles.smaller_ids",
+        ),
+        compatibility_profile_ids=_validate_encode_profile_ids(
+            compatibility_ids,
+            encode_config,
+            setting_name="config/delivery_guidance.toml profiles.compatibility_ids",
+        ),
         messages=messages,
     )
 
@@ -378,7 +482,28 @@ def _load_runtime_actions(config_dir: Path) -> RuntimeActionConfig:
         max_actions=int(runtime_payload.get("max_actions", 5)),
         checks=build_rules("checks"),
         packs=build_rules("packs"),
+        contexts=build_rules("contexts"),
     )
+
+
+def _normalize_model_dirs(raw_dirs: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    is_wsl = _is_wsl_environment()
+    for raw_dir in raw_dirs:
+        candidate = str(raw_dir).strip()
+        if not candidate:
+            continue
+        if candidate.startswith("%LOCALAPPDATA%") and os.name != "nt" and not is_wsl:
+            continue
+        if candidate.startswith("$HOME") and os.name == "nt" and not is_wsl:
+            continue
+        if candidate.startswith("~") and os.name == "nt" and not is_wsl:
+            continue
+        if candidate.startswith("$XDG_DATA_HOME") and os.name == "nt" and not is_wsl:
+            continue
+        if candidate not in normalized:
+            normalized.append(candidate)
+    return tuple(normalized)
 
 
 def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
@@ -390,20 +515,22 @@ def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
     defaults = _read_toml(resolved_config_dir / "defaults.toml")
     fallback_filters = _read_toml(resolved_config_dir / "fallback_filters.toml")
     app_defaults = defaults["app"]
-    default_encode_profile_id = app_defaults.get("default_encode_profile_id", "hevc_balanced_archive")
+    configured_default_encode_profile_id = app_defaults.get("default_encode_profile_id", "hevc_balanced_archive")
+    encode_config = _load_encode_profiles(resolved_config_dir, configured_default_encode_profile_id)
 
     return AppConfig(
         config_dir=resolved_config_dir,
         app=AppSettings(
             name=app_defaults["name"],
             default_container=app_defaults["default_container"],
-            default_encode_profile_id=default_encode_profile_id,
+            default_encode_profile_id=encode_config.default_profile_id,
             default_output_root=app_defaults["default_output_root"],
             output_layout=app_defaults.get("output_layout", "preserve_relative"),
             output_name_template=app_defaults.get("output_name_template", "{stem}"),
             output_collision_template=app_defaults.get("output_collision_template", "__dup{index}"),
             state_db_path=app_defaults["state_db_path"],
             preview_cache_dir=app_defaults["preview_cache_dir"],
+            scratch_dir=app_defaults.get("scratch_dir", "runtime/scratch"),
             project_history_scope=app_defaults["project_history_scope"],
             max_recent_targets=int(app_defaults.get("max_recent_targets", 6)),
             supported_extensions=tuple(sorted({str(item).lower() for item in app_defaults["supported_extensions"]})),
@@ -444,11 +571,12 @@ def load_app_config(config_dir: str | Path | None = None) -> AppConfig:
         ),
         runtime_actions=_load_runtime_actions(resolved_config_dir),
         paths=PathSettings(
-            model_dirs=tuple(defaults["paths"]["model_dirs"])
+            model_dirs=_normalize_model_dirs(defaults["paths"]["model_dirs"])
         ),
         profiles=_load_profiles(resolved_config_dir),
-        encode=_load_encode_profiles(resolved_config_dir, default_encode_profile_id),
-        conversion_guidance=_load_conversion_guidance(resolved_config_dir),
+        encode=encode_config,
+        conversion_guidance=_load_conversion_guidance(resolved_config_dir, encode_config),
+        delivery_guidance=_load_delivery_guidance(resolved_config_dir, encode_config),
         model_registry=_load_model_registry(resolved_config_dir),
         model_packs=_load_model_packs(resolved_config_dir),
         fallback_filters=FallbackFilterConfig(

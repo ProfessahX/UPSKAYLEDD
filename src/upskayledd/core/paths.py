@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
+import uuid
 from pathlib import Path
 
 
@@ -56,6 +58,49 @@ def ensure_directory(path: str | Path) -> Path:
     resolved = resolve_runtime_path(path)
     resolved.mkdir(parents=True, exist_ok=True)
     return resolved
+
+
+class RuntimeTemporaryDirectory:
+    """Workspace/app-rooted temporary directory for runtime-safe scratch writes."""
+
+    def __init__(
+        self,
+        root: str | Path = "runtime/scratch",
+        *,
+        prefix: str = "tmp",
+        suffix: str = "",
+        app_name: str = "UPSKAYLEDD",
+        ignore_cleanup_errors: bool = False,
+    ) -> None:
+        base = resolve_runtime_path(root, app_name=app_name)
+        base.mkdir(parents=True, exist_ok=True)
+        folder_name = f"{prefix}{uuid.uuid4().hex}{suffix}"
+        self.path = base / folder_name
+        self.path.mkdir(parents=True, exist_ok=False)
+        self.name = str(self.path)
+        self.ignore_cleanup_errors = ignore_cleanup_errors
+        self._cleaned = False
+
+    def __enter__(self) -> str:
+        return self.name
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.cleanup()
+
+    def cleanup(self) -> None:
+        if self._cleaned:
+            return
+        try:
+            shutil.rmtree(self.path)
+        except FileNotFoundError:
+            self._cleaned = True
+            return
+        except OSError:
+            if self.ignore_cleanup_errors:
+                self._cleaned = True
+                return
+            raise
+        self._cleaned = True
 
 
 def normalize_path_for_platform(path: str | Path) -> str:
