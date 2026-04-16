@@ -37,6 +37,16 @@ def normalize_path(value: str | Path) -> str:
     return str(Path(value).resolve()).lower()
 
 
+def run_fixture_command(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+    options = {
+        "check": True,
+        "capture_output": True,
+        "text": True,
+        **kwargs,
+    }
+    return subprocess.run(command, **options)  # noqa: S603
+
+
 class AppServiceTests(unittest.TestCase):
     def test_list_encode_profiles_reflects_configured_delivery_lanes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -52,15 +62,16 @@ class AppServiceTests(unittest.TestCase):
 
     def test_recommend_target_includes_delivery_guidance(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            self.skipTest("ffmpeg not available")
+        ffprobe = shutil.which("ffprobe")
+        if not ffmpeg or not ffprobe:
+            self.skipTest("ffmpeg/ffprobe not available")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             config_dir = make_temp_config(temp_path)
             service = AppService(str(config_dir))
             source = temp_path / "sample.mp4"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -72,9 +83,6 @@ class AppServiceTests(unittest.TestCase):
                     "yuv420p",
                     str(source),
                 ],
-                check=True,
-                capture_output=True,
-                text=True,
             )
 
             payload = service.recommend_target(str(source))
@@ -155,7 +163,7 @@ class AppServiceTests(unittest.TestCase):
             service = AppService(str(config_dir))
             source = temp_path / "sample.mp4"
             manifest_path = temp_path / "project_manifest.json"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -167,9 +175,6 @@ class AppServiceTests(unittest.TestCase):
                     "yuv420p",
                     str(source),
                 ],
-                check=True,
-                capture_output=True,
-                text=True,
             )
 
             recommendation = service.recommend_target(str(source))
@@ -196,8 +201,9 @@ class AppServiceTests(unittest.TestCase):
 
     def test_recommend_target_includes_batch_source_rows_and_outliers(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            self.skipTest("ffmpeg not available")
+        ffprobe = shutil.which("ffprobe")
+        if not ffmpeg or not ffprobe:
+            self.skipTest("ffmpeg/ffprobe not available")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -210,7 +216,7 @@ class AppServiceTests(unittest.TestCase):
                 (outlier, "color=c=black:s=640x480:d=0.5", "15"),
             ]
             for path, source_filter, fps in fixtures:
-                subprocess.run(
+                run_fixture_command(
                     [
                         ffmpeg,
                         "-y",
@@ -224,9 +230,6 @@ class AppServiceTests(unittest.TestCase):
                         "yuv420p",
                         str(path),
                     ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
                 )
 
             recommendation = service.recommend_target(str(temp_path))
@@ -328,7 +331,7 @@ class AppServiceTests(unittest.TestCase):
             service = AppService(str(config_dir))
             source = temp_path / "source.mkv"
             output = temp_path / "output.mp4"
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -340,11 +343,8 @@ class AppServiceTests(unittest.TestCase):
                     "yuv420p",
                     str(source),
                 ],
-                check=True,
-                capture_output=True,
-                text=True,
             )
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -358,9 +358,6 @@ class AppServiceTests(unittest.TestCase):
                     "aac",
                     str(output),
                 ],
-                check=True,
-                capture_output=True,
-                text=True,
             )
 
             payload = service.compare_media_files(
@@ -385,8 +382,9 @@ class AppServiceTests(unittest.TestCase):
 
     def test_support_bundle_redacts_paths_by_default_and_includes_selected_job_manifest(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            self.skipTest("ffmpeg not available")
+        ffprobe = shutil.which("ffprobe")
+        if not ffmpeg or not ffprobe:
+            self.skipTest("ffmpeg/ffprobe not available")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -394,7 +392,7 @@ class AppServiceTests(unittest.TestCase):
             service = AppService(str(config_dir))
             source = temp_path / "season" / "episode01.mp4"
             source.parent.mkdir()
-            subprocess.run(
+            run_fixture_command(
                 [
                     ffmpeg,
                     "-y",
@@ -406,9 +404,6 @@ class AppServiceTests(unittest.TestCase):
                     "yuv420p",
                     str(source),
                 ],
-                check=True,
-                capture_output=True,
-                text=True,
             )
 
             recommendation = service.recommend_target(str(source))

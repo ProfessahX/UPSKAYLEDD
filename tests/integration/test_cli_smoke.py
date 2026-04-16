@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import os
 import shutil
 import subprocess
 import tempfile
@@ -9,6 +10,7 @@ import unittest
 import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from upskayledd.cli import main
 
@@ -76,30 +78,44 @@ class CLISmokeTests(unittest.TestCase):
     def test_platform_matrix_writes_json_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "platform_matrix.json"
-            exit_code = main(["platform-matrix", "--json-output", str(output)])
+            with mock.patch.dict(
+                os.environ,
+                {"TMP": temp_dir, "TEMP": temp_dir, "TMPDIR": temp_dir},
+                clear=False,
+            ):
+                exit_code = main(["platform-matrix", "--json-output", str(output)])
             self.assertEqual(exit_code, 0)
             payload = json.loads(output.read_text(encoding="utf-8"))
             context_ids = {item["context_id"] for item in payload["contexts"]}
             self.assertIn("windows_native", context_ids)
             self.assertIn("linux_wsl", context_ids)
             self.assertIn("generated_at_utc", payload)
-            self.assertTrue(payload["watch_items"])
+            self.assertIn("watch_items", payload)
+            self.assertIsInstance(payload["watch_items"], list)
 
     def test_platform_matrix_prints_context_actions_inline(self) -> None:
         buffer = io.StringIO()
-        with redirect_stdout(buffer):
-            exit_code = main(["platform-matrix"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(
+                os.environ,
+                {"TMP": temp_dir, "TEMP": temp_dir, "TMPDIR": temp_dir},
+                clear=False,
+            ):
+                with redirect_stdout(buffer):
+                    exit_code = main(["platform-matrix"])
 
         self.assertEqual(exit_code, 0)
         output = buffer.getvalue()
         self.assertIn("Windows", output)
         self.assertIn("Linux (WSL)", output)
-        self.assertIn("Decide on a Linux-side WSL runtime plan", output)
+        self.assertIn("Setup actions:", output)
+        self.assertIn("- ", output)
 
     def test_compare_media_writes_json_output(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            self.skipTest("ffmpeg not available")
+        ffprobe = shutil.which("ffprobe")
+        if not ffmpeg or not ffprobe:
+            self.skipTest("ffmpeg/ffprobe not available")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

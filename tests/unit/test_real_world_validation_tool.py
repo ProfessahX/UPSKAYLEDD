@@ -4,6 +4,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def _load_module():
@@ -47,6 +48,18 @@ class RealWorldValidationToolTests(unittest.TestCase):
 
         self.assertEqual(module._extract_vspipe_fps("Width: 1440\nFPS: 14696/503 (29.217 fps)\n"), 14696 / 503)
         self.assertIsNone(module._extract_vspipe_fps("Width: 1440\nFrames: 240\n"))
+
+    def test_probe_vspipe_fps_returns_none_when_probe_script_cannot_be_written(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "sample.mkv"
+            source.write_bytes(b"video")
+
+            with (
+                mock.patch.object(module.shutil, "which", return_value="vspipe"),
+                mock.patch.object(Path, "write_text", side_effect=OSError("read only")),
+            ):
+                self.assertIsNone(module.probe_vspipe_fps(source))
 
     def test_summarize_run_manifest_surfaces_size_warning_state(self) -> None:
         module = _load_module()
@@ -294,6 +307,52 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["canonical"]["size_ratio"]["count"], 0)
         self.assertEqual(summary["canonical"]["subtitle_change_count"], 0)
         self.assertEqual(summary["canonical"]["stream_loss_count"], 0)
+
+    def test_build_metric_overview_tolerates_bad_numeric_metadata(self) -> None:
+        module = _load_module()
+        overview = module.build_metric_overview(
+            {
+                "input": {
+                    "container_name": "matroska",
+                    "duration_seconds": "oops",
+                    "size_bytes": "still-oops",
+                    "overall_bitrate_bps": "bad",
+                    "chapter_count": "nan",
+                    "video": {"codec_name": "mpeg2video", "width": 720, "height": 480},
+                    "audio": {"stream_count": "broken"},
+                    "subtitle": {"stream_count": "also-broken"},
+                },
+                "output": {
+                    "container_name": "mp4",
+                    "chapter_count": "bad",
+                    "video": {"codec_name": "h264", "width": 1440, "height": 1080},
+                    "audio": {"stream_count": "broken"},
+                    "subtitle": {"stream_count": "also-broken"},
+                },
+            }
+        )
+
+        self.assertEqual(overview["input"]["chapter_count"], 0)
+        self.assertEqual(overview["output"]["chapter_count"], 0)
+        self.assertIn("0 stream(s)", overview["input"]["audio"])
+        self.assertIn("0 stream(s)", overview["input"]["subtitle"])
+
+    def test_select_sources_falls_back_to_discovered_media_when_inspection_reports_are_missing(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir)
+            discovered = [target / "episode01.mkv", target / "episode02.mkv", target / "episode03.mkv"]
+            service = mock.Mock()
+            service.inspector.discover_media_files.return_value = discovered
+            service.recommend_target.return_value = {"inspection_reports": [], "batch_summary": {}}
+
+            selected, payload = module.select_sources(service, target, limit=2)
+
+        self.assertEqual(selected, [path.resolve() for path in discovered[:2]])
+        self.assertEqual(payload["strategy"], "discovery_fallback_no_inspection_reports")
+        self.assertEqual(payload["considered_source_count"], 3)
+        self.assertEqual(len(payload["chosen_sources"]), 2)
+        self.assertEqual(payload["chosen_sources"][0]["reasons"], ["discovery fallback"])
 
     def test_summarize_validation_results_distinguishes_decode_aligned_mixed_groups(self) -> None:
         module = _load_module()

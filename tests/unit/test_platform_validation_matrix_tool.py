@@ -83,6 +83,25 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         self.assertEqual(context["health"], "watch")
         self.assertIn("Linux (WSL) still has missing runtime checks.", watch_items)
 
+    def test_degraded_checks_without_warnings_still_surface_watch_item(self) -> None:
+        module = _load_module()
+        context = module.summarize_context(
+            "linux_wsl",
+            "Linux (WSL)",
+            {
+                "platform_summary": "Linux (WSL) · 6.6.87.2-microsoft-standard-WSL2 · x86_64 · Python 3.12.3",
+                "checks": [{"name": "vspipe", "status": "degraded"}],
+                "warnings": [],
+                "path_rules": [],
+            },
+            {"actions": []},
+        )
+
+        watch_items = module.build_watch_items([context])
+
+        self.assertEqual(context["health"], "watch")
+        self.assertIn("Linux (WSL) is usable but still carries degraded runtime checks.", watch_items)
+
     def test_non_actionable_missing_checks_do_not_downgrade_ready_state(self) -> None:
         module = _load_module()
         context = module.summarize_context(

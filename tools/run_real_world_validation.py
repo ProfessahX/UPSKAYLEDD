@@ -116,7 +116,7 @@ def _format_video_metrics(video: dict[str, Any]) -> str:
 
 def _format_audio_metrics(audio: dict[str, Any]) -> str:
     codecs = ", ".join(audio.get("codec_names", [])) or "unknown audio"
-    stream_count = int(audio.get("stream_count", 0) or 0)
+    stream_count = _safe_int(audio.get("stream_count")) or 0
     max_channels = _safe_int(audio.get("max_channels")) or 0
     details = [f"{stream_count} stream(s)", codecs]
     if max_channels:
@@ -129,7 +129,7 @@ def _format_audio_metrics(audio: dict[str, Any]) -> str:
 
 def _format_subtitle_metrics(subtitle: dict[str, Any]) -> str:
     codecs = ", ".join(subtitle.get("codec_names", [])) or "no subtitle codec data"
-    stream_count = int(subtitle.get("stream_count", 0) or 0)
+    stream_count = _safe_int(subtitle.get("stream_count")) or 0
     details = [f"{stream_count} stream(s)", codecs]
     languages = ", ".join(subtitle.get("languages", []))
     if languages:
@@ -224,24 +224,27 @@ def probe_vspipe_fps(path: str | Path) -> float | None:
     if not vspipe:
         return None
     resolved = Path(path).resolve()
-    probe_root = resolved.parent / ".validation_probe"
-    probe_root.mkdir(parents=True, exist_ok=True)
     try:
+        probe_root = Path(tempfile.gettempdir()) / "upskayledd_validation_probe"
+        probe_root.mkdir(parents=True, exist_ok=True)
         stat = resolved.stat()
         cache_token = f"{stat.st_size}-{stat.st_mtime_ns}"
     except OSError:
-        cache_token = "unknown"
+        return None
     index_path = probe_root / f"{resolved.stem}-{cache_token}.ffindex"
     script_path = probe_root / f"{resolved.stem}-{cache_token}.vpy"
-    script_path.write_text(
-        (
-            "import vapoursynth as vs\n"
-            "core = vs.core\n"
-            f"clip = core.ffms2.Source(source={str(resolved)!r}, cache=True, cachefile={str(index_path)!r})\n"
-            "clip.set_output()\n"
-        ),
-        encoding="utf-8",
-    )
+    try:
+        script_path.write_text(
+            (
+                "import vapoursynth as vs\n"
+                "core = vs.core\n"
+                f"clip = core.ffms2.Source(source={str(resolved)!r}, cache=True, cachefile={str(index_path)!r})\n"
+                "clip.set_output()\n"
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        return None
     completed = subprocess.run(
         [vspipe, "--info", str(script_path), "-"],
         capture_output=True,
@@ -276,12 +279,12 @@ def sample_copy_fallback_reasons(
         reasons.append("copied sample drifted away from the source cadence")
     if source_fps is not None and sample_pipeline_fps is not None and abs(source_fps - sample_pipeline_fps) > fps_tolerance:
         reasons.append("copied sample drifts under ffms2/vspipe compared with the source cadence")
-    source_audio = int(dict(source_payload.get("audio", {})).get("stream_count", 0) or 0)
-    sample_audio = int(dict(sample_payload.get("audio", {})).get("stream_count", 0) or 0)
+    source_audio = _safe_int(dict(source_payload.get("audio", {})).get("stream_count")) or 0
+    sample_audio = _safe_int(dict(sample_payload.get("audio", {})).get("stream_count")) or 0
     if sample_audio < source_audio:
         reasons.append("copied sample lost audio streams")
-    source_subtitles = int(dict(source_payload.get("subtitle", {})).get("stream_count", 0) or 0)
-    sample_subtitles = int(dict(sample_payload.get("subtitle", {})).get("stream_count", 0) or 0)
+    source_subtitles = _safe_int(dict(source_payload.get("subtitle", {})).get("stream_count")) or 0
+    sample_subtitles = _safe_int(dict(sample_payload.get("subtitle", {})).get("stream_count")) or 0
     if sample_subtitles < source_subtitles:
         reasons.append("copied sample lost subtitle streams")
     return reasons
@@ -301,7 +304,7 @@ def build_metric_overview(media_metrics: dict[str, Any] | None) -> dict[str, Any
             "video": _format_video_metrics(dict(input_metrics.get("video", {}))),
             "audio": _format_audio_metrics(dict(input_metrics.get("audio", {}))),
             "subtitle": _format_subtitle_metrics(dict(input_metrics.get("subtitle", {}))),
-            "chapter_count": int(input_metrics.get("chapter_count", 0) or 0),
+            "chapter_count": _safe_int(input_metrics.get("chapter_count")) or 0,
         },
         "output": {
             "container": str(output_metrics.get("container_name") or "unknown").upper(),
@@ -311,7 +314,7 @@ def build_metric_overview(media_metrics: dict[str, Any] | None) -> dict[str, Any
             "video": _format_video_metrics(dict(output_metrics.get("video", {}))),
             "audio": _format_audio_metrics(dict(output_metrics.get("audio", {}))),
             "subtitle": _format_subtitle_metrics(dict(output_metrics.get("subtitle", {}))),
-            "chapter_count": int(output_metrics.get("chapter_count", 0) or 0),
+            "chapter_count": _safe_int(output_metrics.get("chapter_count")) or 0,
         },
         "comparison_highlights": _format_comparison_highlights(comparison),
         "guidance": [str(item).strip() for item in comparison.get("guidance", []) if str(item).strip()],
@@ -365,6 +368,20 @@ def select_sources(
 
     recommendation = service.recommend_target(str(target), output_policy_overrides=output_policy_overrides or {})
     inspection_reports = [InspectionReport.from_dict(item) for item in recommendation.get("inspection_reports", [])]
+    if not inspection_reports:
+        fallback = discovered[: max(1, limit)]
+        return fallback, {
+            "strategy": "discovery_fallback_no_inspection_reports",
+            "considered_source_count": len(discovered),
+            "chosen_sources": [
+                {
+                    "source_path": str(path),
+                    "source_name": path.name,
+                    "reasons": ["discovery fallback"],
+                }
+                for path in fallback
+            ],
+        }
     batch_summary = dict(recommendation.get("batch_summary", {}))
     dominant_profile = str(batch_summary.get("dominant_profile") or "").strip()
     outlier_paths = {str(path) for path in batch_summary.get("outlier_sources", [])}

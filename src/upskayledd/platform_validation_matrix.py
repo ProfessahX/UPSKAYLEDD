@@ -100,7 +100,7 @@ def build_watch_items(contexts: list[dict[str, Any]]) -> list[str]:
         )
         if actionable_missing_count > 0:
             items.append(f"{label} still has missing runtime checks.")
-        elif actionable_degraded_count > 0 and context.get("warnings"):
+        elif actionable_degraded_count > 0:
             items.append(f"{label} is usable but still carries degraded runtime checks.")
         if int(context.get("action_count", 0) or 0) > 0:
             items.append(f"{label} still has prioritized setup actions to clear.")
