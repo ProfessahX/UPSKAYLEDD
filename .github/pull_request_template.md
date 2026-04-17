@@ -16,6 +16,9 @@
 - [ ] Each finding was either implemented or explicitly marked unneeded with a reason
 - [ ] This PR is not being merged before the CodeRabbit triage is complete
 
+Document unneeded findings in inline PR comments, the PR description, or the Notes section.
+Example: `Unneeded: suggestion assumes duplicated logic, but this branch now calls the shared helper instead.`
+
 ## Notes
 
 - Fallbacks, degradations, or platform-specific behavior:
