@@ -66,6 +66,13 @@ Before opening a PR:
 - do not commit local caches, previews, outputs, or weights
 - call out any fallback, downgrade, or backend-specific behavior changes clearly
 
+Before merging a PR:
+
+- let CodeRabbit finish its review
+- read every CodeRabbit finding, including nitpicks
+- either implement each finding or record why it is not needed
+- do not merge while CodeRabbit is still reporting or before that triage is complete
+
 ## Repo hygiene
 
 Please avoid committing:
