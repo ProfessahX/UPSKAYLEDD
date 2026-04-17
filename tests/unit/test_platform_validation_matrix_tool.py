@@ -105,6 +105,27 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         self.assertEqual(context["health"], "watch")
         self.assertIn("Linux (WSL) is usable but still carries degraded runtime checks.", watch_items)
 
+    def test_execution_smoke_failure_downgrades_context_and_surfaces_watch_item(self) -> None:
+        module = _load_module()
+        context = module.summarize_context(
+            "linux_wsl",
+            "Linux (WSL)",
+            {
+                "platform_summary": "Linux (WSL) · 6.6.87.2-microsoft-standard-WSL2 · x86_64 · Python 3.12.3",
+                "checks": [{"name": "ffmpeg", "status": "healthy"}],
+                "warnings": [],
+                "path_rules": [],
+            },
+            {"actions": []},
+            execution_smoke={"status": "failed", "detail": "ffmpeg was not available"},
+        )
+
+        watch_items = module.build_watch_items([context])
+
+        self.assertEqual(context["health"], "attention")
+        self.assertEqual(context["execution_smoke"]["status"], "failed")
+        self.assertIn("Linux (WSL) could not complete the lightweight execution smoke.", watch_items)
+
     def test_non_actionable_missing_checks_do_not_downgrade_ready_state(self) -> None:
         module = _load_module()
         context = module.summarize_context(
@@ -181,6 +202,7 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         module = _load_module()
         payload = {
             "generated_at_utc": "2026-04-16T00:00:00Z",
+            "include_execution_smoke": False,
             "repo_root": str(module.ROOT),
             "contexts": [
                 module.summarize_context(
@@ -241,6 +263,25 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         native = next(item for item in contexts if item["context_id"] == "windows_native")
         self.assertFalse(native["available"])
         self.assertIn("not running on a Windows host", native["error"])
+
+    def test_main_passes_execution_smoke_flag_through_to_builder(self) -> None:
+        module = _load_module()
+        payload = {
+            "generated_at_utc": "2026-04-16T00:00:00Z",
+            "include_execution_smoke": True,
+            "repo_root": str(module.ROOT),
+            "contexts": [],
+            "watch_items": [],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "matrix.json"
+            with mock.patch.object(module, "build_platform_validation_payload", return_value=payload) as builder:
+                with redirect_stdout(io.StringIO()):
+                    result = module.main(["--output-json", str(output_path), "--include-execution-smoke"])
+
+        self.assertEqual(result, 0)
+        builder.assert_called_once_with(module.ROOT.resolve(), include_execution_smoke=True)
 
     def test_native_payload_timeout_reports_clear_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

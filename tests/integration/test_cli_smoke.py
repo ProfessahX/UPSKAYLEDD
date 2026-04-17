@@ -111,6 +111,40 @@ class CLISmokeTests(unittest.TestCase):
         self.assertIn("Setup actions:", output)
         self.assertIn("- ", output)
 
+    def test_platform_matrix_can_print_execution_smoke_status(self) -> None:
+        buffer = io.StringIO()
+        payload = {
+            "generated_at_utc": "2026-04-16T00:00:00Z",
+            "include_execution_smoke": True,
+            "repo_root": str(Path.cwd()),
+            "contexts": [
+                {
+                    "context_id": "windows_native",
+                    "display_name": "Windows (native)",
+                    "platform_summary": "Windows · 10 · AMD64 · Python 3.13.12",
+                    "health": "ready",
+                    "available": True,
+                    "missing_check_count": 0,
+                    "degraded_check_count": 0,
+                    "action_count": 0,
+                    "actions": [],
+                    "execution_smoke": {
+                        "status": "passed",
+                        "detail": "Generated a tiny fixture and completed a degraded execution run.",
+                    },
+                }
+            ],
+            "watch_items": [],
+        }
+        with mock.patch("upskayledd.cli.AppService.platform_validation_matrix", return_value=payload):
+            with redirect_stdout(buffer):
+                exit_code = main(["platform-matrix", "--include-execution-smoke"])
+
+        self.assertEqual(exit_code, 0)
+        output = buffer.getvalue()
+        self.assertIn("Execution smoke: passed", output)
+        self.assertIn("Generated a tiny fixture", output)
+
     def test_compare_media_writes_json_output(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
         ffprobe = shutil.which("ffprobe")

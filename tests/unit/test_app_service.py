@@ -316,7 +316,7 @@ class AppServiceTests(unittest.TestCase):
             with mock.patch("upskayledd.app_service.build_platform_validation_payload", return_value=payload) as builder:
                 result = service.platform_validation_matrix()
 
-            builder.assert_called_once_with(None)
+            builder.assert_called_once_with(None, include_execution_smoke=False)
             self.assertEqual(result["contexts"][0]["context_id"], "windows_native")
 
     def test_compare_media_files_returns_normalized_metrics_and_guidance(self) -> None:
