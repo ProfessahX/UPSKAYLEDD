@@ -7,6 +7,9 @@ import sys
 import uuid
 from pathlib import Path
 
+WINDOWS_ENV_PATTERN = re.compile(r"%([A-Za-z_][A-Za-z0-9_]*)%")
+WINDOWS_DRIVE_PATH_PATTERN = re.compile(r"^([A-Za-z]):[\\/]*(.*)$")
+
 
 def repo_root() -> Path:
     if getattr(sys, "frozen", False):
@@ -25,6 +28,31 @@ def writable_app_root(app_name: str = "UPSKAYLEDD") -> Path:
     return base / app_name
 
 
+def _running_inside_wsl() -> bool:
+    if os.name == "nt":
+        return False
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        proc_version = Path("/proc/version").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return "microsoft" in proc_version.lower()
+
+
+def _translate_windows_path_for_wsl(text: str) -> str:
+    if not _running_inside_wsl():
+        return text
+    match = WINDOWS_DRIVE_PATH_PATTERN.match(text)
+    if not match:
+        return text
+    drive, tail = match.groups()
+    normalized_tail = tail.replace("\\", "/").lstrip("/")
+    if not normalized_tail:
+        return f"/mnt/{drive.lower()}"
+    return f"/mnt/{drive.lower()}/{normalized_tail}"
+
+
 def expand_config_path(raw_path: str | Path) -> Path:
     text = str(raw_path)
     text = re.sub(
@@ -34,7 +62,12 @@ def expand_config_path(raw_path: str | Path) -> Path:
         ),
         text,
     )
+    text = WINDOWS_ENV_PATTERN.sub(
+        lambda match: os.environ.get(match.group(1), match.group(0)),
+        text,
+    )
     expanded = os.path.expandvars(os.path.expanduser(text))
+    expanded = _translate_windows_path_for_wsl(expanded)
     return Path(expanded)
 
 

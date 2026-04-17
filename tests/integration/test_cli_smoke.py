@@ -130,9 +130,11 @@ class CLISmokeTests(unittest.TestCase):
                     "missing_check_count": 0,
                     "degraded_check_count": 0,
                     "action_count": 0,
+                    "canonical_runtime_status": "ready",
                     "actions": [],
                     "execution_smoke": {
                         "status": "passed",
+                        "execution_mode": "degraded",
                         "detail": "Generated a tiny fixture and completed a degraded execution run.",
                     },
                 }
@@ -145,7 +147,8 @@ class CLISmokeTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         output = buffer.getvalue()
-        self.assertIn("Execution smoke: passed", output)
+        self.assertIn("Canonical runtime: ready", output)
+        self.assertIn("Execution smoke: passed (degraded)", output)
         self.assertIn("Generated a tiny fixture", output)
 
     def test_compare_media_writes_json_output(self) -> None:

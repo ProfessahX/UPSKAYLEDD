@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from upskayledd.core.errors import ConfigError
-from upskayledd.core.paths import repo_root, resolve_repo_path
+from upskayledd.core.paths import expand_config_path, repo_root, resolve_repo_path
 
 
 @dataclass(slots=True, frozen=True)
@@ -495,6 +495,10 @@ def _normalize_model_dirs(raw_dirs: list[str] | tuple[str, ...]) -> tuple[str, .
             continue
         if candidate.startswith("%LOCALAPPDATA%") and os.name != "nt" and not is_wsl:
             continue
+        if candidate.startswith("%LOCALAPPDATA%") and is_wsl:
+            expanded = str(expand_config_path(candidate))
+            if "%" in expanded:
+                continue
         if candidate.startswith("$HOME") and os.name == "nt" and not is_wsl:
             continue
         if candidate.startswith("~") and os.name == "nt" and not is_wsl:

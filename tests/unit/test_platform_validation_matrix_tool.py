@@ -63,6 +63,7 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         self.assertEqual(wsl["missing_check_count"], 1)
         self.assertEqual(wsl["degraded_check_count"], 1)
         self.assertEqual(wsl["action_count"], 1)
+        self.assertEqual(wsl["canonical_runtime_status"], "incomplete")
         self.assertIn("vspipe", wsl["missing_check_names"])
         self.assertTrue(any("Linux (WSL) still has missing runtime checks." == item for item in watch_items))
         self.assertTrue(any("Native Windows and Linux-side WSL currently differ in runtime readiness." == item for item in watch_items))
@@ -112,7 +113,10 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
             "Linux (WSL)",
             {
                 "platform_summary": "Linux (WSL) · 6.6.87.2-microsoft-standard-WSL2 · x86_64 · Python 3.12.3",
-                "checks": [{"name": "ffmpeg", "status": "healthy"}],
+                "checks": [
+                    {"name": "ffmpeg", "status": "healthy"},
+                    {"name": "vapoursynth", "status": "missing"},
+                ],
                 "warnings": [],
                 "path_rules": [],
             },
@@ -125,6 +129,41 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
         self.assertEqual(context["health"], "attention")
         self.assertEqual(context["execution_smoke"]["status"], "failed")
         self.assertIn("Linux (WSL) could not complete the lightweight execution smoke.", watch_items)
+
+    def test_degraded_smoke_success_still_flags_incomplete_canonical_runtime(self) -> None:
+        module = _load_module()
+        context = module.summarize_context(
+            "linux_wsl",
+            "Linux (WSL)",
+            {
+                "platform_summary": "Linux (WSL) · 6.6.87.2-microsoft-standard-WSL2 · x86_64 · Python 3.12.3",
+                "checks": [
+                    {"name": "ffmpeg", "status": "healthy"},
+                    {"name": "vapoursynth", "status": "missing"},
+                ],
+                "warnings": [],
+                "path_rules": [],
+            },
+            {
+                "actions": [
+                    {
+                        "action_id": "check:vapoursynth",
+                        "category": "runtime",
+                        "title": "Install VapourSynth",
+                    }
+                ]
+            },
+            execution_smoke={"status": "passed", "execution_mode": "degraded", "detail": "tiny degraded run passed"},
+        )
+
+        watch_items = module.build_watch_items([context])
+
+        self.assertFalse(context["canonical_runtime_ready"])
+        self.assertEqual(context["canonical_runtime_status"], "incomplete")
+        self.assertIn(
+            "Linux (WSL) passed a degraded smoke run, but the canonical runtime is still incomplete.",
+            watch_items,
+        )
 
     def test_non_actionable_missing_checks_do_not_downgrade_ready_state(self) -> None:
         module = _load_module()

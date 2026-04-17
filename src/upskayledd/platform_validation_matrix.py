@@ -17,6 +17,7 @@ from upskayledd.core.paths import RuntimeTemporaryDirectory
 ROOT = Path(__file__).resolve().parents[2]
 SUBPROCESS_TIMEOUT_SECONDS = 300
 SMOKE_STEPS = ["generate_fixture", "recommend", "run_degraded"]
+CANONICAL_RUNTIME_CHECKS = {"vapoursynth", "vsmlrt", "ffms2", "vspipe"}
 
 
 def windows_to_wsl_path(path: Path) -> str:
@@ -57,8 +58,20 @@ def summarize_context(
         for item in degraded_checks
         if not actionable_names or str(item.get("name", "")).strip() in actionable_names
     ]
+    runtime_actions = [
+        item
+        for item in actions
+        if isinstance(item, dict) and str(item.get("category", "")).strip() == "runtime"
+    ]
     smoke = dict(execution_smoke or {})
     smoke_status = str(smoke.get("status", "")).strip().lower()
+    canonical_runtime_gaps = [
+        item
+        for item in (*actionable_missing_checks, *actionable_degraded_checks)
+        if str(item.get("name", "")).strip() in CANONICAL_RUNTIME_CHECKS
+    ]
+    canonical_runtime_ready = available and not canonical_runtime_gaps
+    canonical_runtime_status = "ready" if canonical_runtime_ready else "incomplete"
     if not available:
         health = "unavailable"
     elif actions:
@@ -89,6 +102,10 @@ def summarize_context(
         "path_rules": list(doctor.get("path_rules", [])),
         "warnings": list(doctor.get("warnings", [])),
         "actions": actions,
+        "runtime_action_count": len(runtime_actions),
+        "canonical_runtime_gap_count": len(canonical_runtime_gaps),
+        "canonical_runtime_ready": canonical_runtime_ready,
+        "canonical_runtime_status": canonical_runtime_status,
         "execution_smoke": smoke,
         "doctor_report": doctor,
         "setup_plan": setup,
@@ -109,12 +126,15 @@ def build_watch_items(contexts: list[dict[str, Any]]) -> list[str]:
         )
         execution_smoke = dict(context.get("execution_smoke", {}))
         smoke_status = str(execution_smoke.get("status", "")).strip().lower()
+        smoke_mode = str(execution_smoke.get("execution_mode", "")).strip().lower()
         if actionable_missing_count > 0:
             items.append(f"{label} still has missing runtime checks.")
         elif actionable_degraded_count > 0:
             items.append(f"{label} is usable but still carries degraded runtime checks.")
         if smoke_status == "failed":
             items.append(f"{label} could not complete the lightweight execution smoke.")
+        elif smoke_status == "passed" and smoke_mode == "degraded" and not bool(context.get("canonical_runtime_ready", False)):
+            items.append(f"{label} passed a degraded smoke run, but the canonical runtime is still incomplete.")
         if int(context.get("action_count", 0) or 0) > 0:
             items.append(f"{label} still has prioritized setup actions to clear.")
         elif str(context.get("health", "")).strip() == "watch":
@@ -254,6 +274,7 @@ def _native_execution_smoke(repo_root: Path, scratch_root: str | Path) -> dict[s
         return _smoke_result(
             "passed",
             "Generated a tiny fixture, built a recommendation, and completed a degraded execution run on the native host.",
+            execution_mode="degraded",
             output_count=len(output_files),
             output_container=output_file.suffix.lstrip(".").lower() or "unknown",
         )
@@ -305,6 +326,7 @@ def _wsl_execution_smoke(repo_root: Path, scratch_root: str | Path) -> dict[str,
         return _smoke_result(
             "passed",
             "Generated a tiny fixture, built a recommendation, and completed a degraded execution run inside Linux-side WSL.",
+            execution_mode="degraded",
             output_count=len(output_files),
             output_container=output_file.suffix.lstrip(".").lower() or "unknown",
         )
