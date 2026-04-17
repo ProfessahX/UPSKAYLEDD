@@ -38,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(ROOT),
         help="Repository root used for native and WSL collection.",
     )
+    parser.add_argument(
+        "--include-execution-smoke",
+        action="store_true",
+        help="Also run a tiny degraded recommend/run smoke lane in each collected runtime context.",
+    )
     return parser
 
 
@@ -55,7 +60,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     repo_root = Path(args.repo_root).resolve()
     output_path = resolve_output_path(args, parser)
-    payload = build_platform_validation_payload(repo_root)
+    payload = build_platform_validation_payload(
+        repo_root,
+        include_execution_smoke=args.include_execution_smoke,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(payload, indent=2, sort_keys=True))

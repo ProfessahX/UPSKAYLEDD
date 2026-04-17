@@ -123,7 +123,10 @@ def command_paths(args: argparse.Namespace) -> int:
 
 
 def command_platform_matrix(args: argparse.Namespace) -> int:
-    payload = AppService(args.config_dir).platform_validation_matrix(repo_root=args.repo_root)
+    payload = AppService(args.config_dir).platform_validation_matrix(
+        repo_root=args.repo_root,
+        include_execution_smoke=args.include_execution_smoke,
+    )
     _write_optional_json(args.json_output, payload)
     for context in payload["contexts"]:
         summary = str(context.get("platform_summary", "")).strip() or str(context.get("display_name", "Context"))
@@ -138,6 +141,13 @@ def command_platform_matrix(args: argparse.Namespace) -> int:
         degraded = int(context.get("degraded_check_count", 0) or 0)
         actions = int(context.get("action_count", 0) or 0)
         print(f"  Missing checks: {missing} | Degraded checks: {degraded} | Setup actions: {actions}")
+        execution_smoke = dict(context.get("execution_smoke", {}))
+        smoke_status = str(execution_smoke.get("status", "")).strip()
+        if smoke_status:
+            print(f"  Execution smoke: {smoke_status}")
+            smoke_detail = str(execution_smoke.get("detail", "")).strip()
+            if smoke_detail:
+                print(f"    {smoke_detail}")
         for action in context.get("actions", []):
             if not isinstance(action, dict):
                 continue
@@ -374,6 +384,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Collect native Windows and Linux-side WSL runtime readiness into one validation snapshot.",
     )
     platform_matrix.add_argument("--repo-root", default=None, help="Optional repo root override for native and WSL collection.")
+    platform_matrix.add_argument(
+        "--include-execution-smoke",
+        action="store_true",
+        help="Also run a tiny degraded recommend/run smoke lane inside each collected runtime context.",
+    )
     platform_matrix.add_argument("--json-output", help="Optional path to write the platform validation matrix.")
     platform_matrix.set_defaults(func=command_platform_matrix)
 

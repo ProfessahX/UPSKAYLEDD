@@ -92,8 +92,16 @@ class AppService:
             locations.append(self._location_payload("primary_model_dir", primary_model_dir))
         return {"locations": locations}
 
-    def platform_validation_matrix(self, repo_root: str | Path | None = None) -> dict[str, Any]:
-        return build_platform_validation_payload(repo_root)
+    def platform_validation_matrix(
+        self,
+        repo_root: str | Path | None = None,
+        *,
+        include_execution_smoke: bool = False,
+    ) -> dict[str, Any]:
+        return build_platform_validation_payload(
+            repo_root,
+            include_execution_smoke=include_execution_smoke,
+        )
 
     def compare_media_files(
         self,
