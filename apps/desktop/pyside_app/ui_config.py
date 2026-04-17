@@ -149,6 +149,7 @@ class SummaryCopyConfig:
     intro: str
     placeholder: str
     delivery_guidance_label: str
+    delivery_snapshot_label: str
     alternative_profiles_label: str
     batch_review_title: str
     batch_review_idle: str

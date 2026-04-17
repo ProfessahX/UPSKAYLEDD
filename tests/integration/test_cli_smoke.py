@@ -51,10 +51,13 @@ class CLISmokeTests(unittest.TestCase):
             exit_code = main(["list-encode-profiles", "--json-output", str(output)])
             self.assertEqual(exit_code, 0)
             payload = json.loads(output.read_text(encoding="utf-8"))
-            profile_ids = {item["id"] for item in payload["profiles"]}
+            profiles = {item["id"]: item for item in payload["profiles"]}
+            profile_ids = set(profiles)
             self.assertEqual(payload["default_profile_id"], "hevc_balanced_archive")
             self.assertIn("hevc_smaller_archive", profile_ids)
             self.assertIn("h264_compatibility_mp4", profile_ids)
+            self.assertIn("Archive-first lane", [item["label"] for item in profiles["hevc_balanced_archive"]["facts"]])
+            self.assertIn("May grow for compatibility", [item["label"] for item in profiles["h264_compatibility_mp4"]["facts"]])
 
     def test_setup_plan_writes_json_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

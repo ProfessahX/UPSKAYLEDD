@@ -56,9 +56,12 @@ class AppServiceTests(unittest.TestCase):
             payload = service.list_encode_profiles()
 
             self.assertEqual(payload["default_profile_id"], "hevc_balanced_archive")
-            profile_ids = {item["id"] for item in payload["profiles"]}
+            profiles = {item["id"]: item for item in payload["profiles"]}
+            profile_ids = set(profiles)
             self.assertIn("hevc_smaller_archive", profile_ids)
             self.assertIn("h264_compatibility_mp4", profile_ids)
+            self.assertIn("Archive-first lane", [item["label"] for item in profiles["hevc_balanced_archive"]["facts"]])
+            self.assertIn("May grow for compatibility", [item["label"] for item in profiles["h264_compatibility_mp4"]["facts"]])
 
     def test_recommend_target_includes_delivery_guidance(self) -> None:
         ffmpeg = shutil.which("ffmpeg")
@@ -90,6 +93,7 @@ class AppServiceTests(unittest.TestCase):
             guidance = payload["delivery_guidance"]
             self.assertEqual(guidance["selected_profile_id"], "hevc_balanced_archive")
             self.assertTrue(guidance["selected_messages"])
+            self.assertTrue(guidance["selected_facts"])
             alternative_ids = {item["id"] for item in guidance["alternative_profiles"]}
             self.assertIn("hevc_smaller_archive", alternative_ids)
             self.assertIn("h264_compatibility_mp4", alternative_ids)
