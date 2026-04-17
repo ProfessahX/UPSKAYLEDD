@@ -75,6 +75,7 @@ class AppService:
                     "audio_bitrate_kbps": profile.audio_bitrate_kbps,
                     "subtitle_codec": profile.subtitle_codec,
                     "preserve_chapters": profile.preserve_chapters,
+                    "facts": self.delivery_guidance_builder.describe_profile(profile.id)["facts"],
                 }
                 for profile in self.config.encode.profiles
             ],

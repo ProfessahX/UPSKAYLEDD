@@ -587,6 +587,19 @@ class SummaryPage(QWidget):
         )
         delivery_guidance = dict(project.delivery_guidance)
         selected_messages = [str(item).strip() for item in delivery_guidance.get("selected_messages", []) if str(item).strip()]
+        selected_facts = [
+            str(item.get("label", "")).strip()
+            for item in delivery_guidance.get("selected_facts", [])
+            if str(item.get("label", "")).strip()
+        ]
+        if selected_facts:
+            recommendation_lines.extend(
+                [
+                    "",
+                    f"{self.ui_config.copy.summary.delivery_snapshot_label}:",
+                ]
+            )
+            recommendation_lines.extend(f"- {label}" for label in selected_facts[:4])
         if selected_messages:
             recommendation_lines.extend(
                 [
@@ -605,8 +618,15 @@ class SummaryPage(QWidget):
             )
             for item in alternative_profiles[:3]:
                 label = str(item.get("label", item.get("id", "Other lane"))).strip() or "Other lane"
+                fact_labels = [
+                    str(fact.get("label", "")).strip()
+                    for fact in item.get("facts", [])
+                    if str(fact.get("label", "")).strip()
+                ]
                 messages = [str(message).strip() for message in item.get("messages", []) if str(message).strip()]
-                if messages:
+                if fact_labels:
+                    recommendation_lines.append(f"- {label}: {' · '.join(fact_labels[:2])}")
+                elif messages:
                     recommendation_lines.append(f"- {label}: {messages[0]}")
                 else:
                     recommendation_lines.append(f"- {label}")

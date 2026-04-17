@@ -33,6 +33,7 @@ class DesktopUiConfigTests(unittest.TestCase):
         self.assertEqual(config.copy.runtime.location_labels["output_root"], "Output")
         self.assertEqual(config.copy.ingest.recent_title, "Recent Targets")
         self.assertEqual(config.copy.summary.delivery_guidance_label, "Delivery Guidance")
+        self.assertEqual(config.copy.summary.delivery_snapshot_label, "Lane Snapshot")
         self.assertEqual(config.copy.summary.alternative_profiles_label, "Other Delivery Lanes")
         self.assertEqual(config.copy.queue.processing_template, "Processing: {source_name} - {progress_percent:.0f}% complete")
         self.assertEqual(config.copy.dashboard.metrics_title, "Before / After Snapshot")

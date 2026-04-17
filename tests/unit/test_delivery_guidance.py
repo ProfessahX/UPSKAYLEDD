@@ -76,7 +76,12 @@ class DeliveryGuidanceTests(unittest.TestCase):
 
         self.assertEqual(payload["selected_profile_id"], "hevc_balanced_archive")
         selected_blob = "\n".join(payload["selected_messages"])
+        selected_facts = [item["label"] for item in payload["selected_facts"]]
         self.assertIn("preservation-minded batches", selected_blob)
+        self.assertIn("Archive-first lane", selected_facts)
+        self.assertIn("Usually smaller than source", selected_facts)
+        self.assertIn("Keeps source audio", selected_facts)
+        self.assertIn("Keeps source subtitles", selected_facts)
         self.assertIn("image-based subtitles", selected_blob)
         self.assertIn("up to 6 audio channels", selected_blob)
         self.assertIn("1440x1080", selected_blob)
@@ -84,7 +89,12 @@ class DeliveryGuidanceTests(unittest.TestCase):
 
         compatibility = next(item for item in payload["alternative_profiles"] if item["id"] == "h264_compatibility_mp4")
         compatibility_blob = "\n".join(compatibility["messages"])
+        compatibility_facts = [item["label"] for item in compatibility["facts"]]
         self.assertEqual(compatibility["status"], "watch")
+        self.assertIn("Compatibility-first lane", compatibility_facts)
+        self.assertIn("May grow for compatibility", compatibility_facts)
+        self.assertIn("Transcodes audio to aac", compatibility_facts)
+        self.assertIn("Image subtitle risk", compatibility_facts)
         self.assertIn("picky devices", compatibility_blob)
         self.assertIn("may convert or drop", compatibility_blob)
         self.assertIn("transcodes audio to aac", compatibility_blob.lower())
@@ -178,6 +188,10 @@ class DeliveryGuidanceTests(unittest.TestCase):
         self.assertEqual(payload["selected_profile_id"], "h264_compatibility_mp4")
         self.assertEqual(payload["selected_status"], "watch")
         self.assertTrue(payload["selected_is_selected"])
+        self.assertIn(
+            "Compatibility-first lane",
+            [item["label"] for item in payload["selected_facts"]],
+        )
 
 
 if __name__ == "__main__":

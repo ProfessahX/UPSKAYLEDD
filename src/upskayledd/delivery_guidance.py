@@ -42,6 +42,7 @@ class DeliveryGuidanceBuilder:
             "selected_profile_id": selected_profile_id,
             "selected_profile_label": selected_profile.label,
             "selected_messages": selected_entry["messages"],
+            "selected_facts": selected_entry["facts"],
             "selected_status": selected_entry["status"],
             "selected_is_selected": True,
             "alternative_profiles": alternatives,
@@ -113,6 +114,7 @@ class DeliveryGuidanceBuilder:
         if facts["batch_outliers"]:
             messages.append(self._message("batch_outliers"))
 
+        fact_tags = self._build_fact_tags(profile, facts)
         deduped_messages = [message for message in dict.fromkeys(messages) if message]
         if selected and status == "alternative":
             status = "selected"
@@ -125,7 +127,16 @@ class DeliveryGuidanceBuilder:
             "video_codec": profile.video_codec,
             "audio_codec": profile.audio_codec,
             "subtitle_codec": profile.subtitle_codec,
+            "facts": fact_tags,
             "messages": deduped_messages,
+        }
+
+    def describe_profile(self, profile_id: str) -> dict[str, Any]:
+        profile = self.config.encode_profile_by_id(profile_id)
+        return {
+            "id": profile.id,
+            "label": profile.label,
+            "facts": self._build_fact_tags(profile, None),
         }
 
     def _resolve_selected_profile(
@@ -191,3 +202,54 @@ class DeliveryGuidanceBuilder:
             return template.format(**kwargs)
         except Exception:  # noqa: BLE001
             return template
+
+    def _build_fact_tags(
+        self,
+        profile: EncodeProfileDefinition,
+        facts: dict[str, Any] | None,
+    ) -> list[dict[str, str]]:
+        tag_rows: list[tuple[str, str]] = []
+
+        if profile.id in self.config.delivery_guidance.archive_profile_ids:
+            tag_rows.append(("info", self._message("fact_archive")))
+            tag_rows.append(("success", self._message("fact_size_smaller")))
+        if profile.id in self.config.delivery_guidance.smaller_profile_ids:
+            tag_rows.append(("success", self._message("fact_smaller")))
+        if profile.id in self.config.delivery_guidance.compatibility_profile_ids:
+            tag_rows.append(("warning", self._message("fact_compatibility")))
+            tag_rows.append(("warning", self._message("fact_size_maybe_larger")))
+
+        if profile.audio_codec == "copy":
+            tag_rows.append(("success", self._message("fact_audio_copy")))
+        else:
+            tag_rows.append(
+                (
+                    "warning" if profile.id in self.config.delivery_guidance.compatibility_profile_ids else "info",
+                    self._message("fact_audio_transcode", audio_codec=profile.audio_codec),
+                )
+            )
+
+        has_image_subtitles = bool((facts or {}).get("has_image_subtitles"))
+        if profile.subtitle_codec == "copy":
+            tag_rows.append(("success", self._message("fact_subtitle_copy")))
+        elif has_image_subtitles:
+            tag_rows.append(("warning", self._message("fact_subtitle_risk")))
+        else:
+            tag_rows.append(("info", self._message("fact_subtitle_text", subtitle_codec=profile.subtitle_codec)))
+
+        tag_rows.append(
+            (
+                "success" if profile.preserve_chapters else "warning",
+                self._message("fact_chapters_preserve" if profile.preserve_chapters else "fact_chapters_drop"),
+            )
+        )
+
+        facts_payload: list[dict[str, str]] = []
+        seen_labels: set[str] = set()
+        for tone, label in tag_rows:
+            normalized_label = str(label).strip()
+            if not normalized_label or normalized_label in seen_labels:
+                continue
+            facts_payload.append({"tone": tone, "label": normalized_label})
+            seen_labels.add(normalized_label)
+        return facts_payload

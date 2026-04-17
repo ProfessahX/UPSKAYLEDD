@@ -116,8 +116,11 @@ class PySideAppSmokeTests(unittest.TestCase):
             self.assertEqual(window.summary_page.batch_table.rowCount(), 2)
             self.assertTrue(window.summary_page.review_flagged_button.isEnabled())
             summary_text = window.summary_page.recommendation_view.toPlainText()
+            self.assertIn(f"{window.ui_config.copy.summary.delivery_snapshot_label}:", summary_text)
             self.assertIn(f"{window.ui_config.copy.summary.delivery_guidance_label}:", summary_text)
             self.assertIn(f"{window.ui_config.copy.summary.alternative_profiles_label}:", summary_text)
+            self.assertIn("Archive-first lane", summary_text)
+            self.assertIn("Usually smaller than source", summary_text)
 
             window.summary_page.review_flagged_button.click()
             app.processEvents()
@@ -155,6 +158,10 @@ class PySideAppSmokeTests(unittest.TestCase):
             self.assertEqual(controller.current_project.manifest.output_policy["encode_profile_id"], "h264_compatibility_mp4")
             self.assertEqual(controller.current_project.manifest.output_policy["container"], "mp4")
             self.assertEqual(controller.current_project.delivery_guidance["selected_profile_id"], "h264_compatibility_mp4")
+            self.assertIn(
+                "Compatibility-first lane",
+                [item["label"] for item in controller.current_project.delivery_guidance["selected_facts"]],
+            )
 
             controller.select_stage("cleanup")
             app.processEvents()

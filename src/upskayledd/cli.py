@@ -90,6 +90,9 @@ def command_list_encode_profiles(args: argparse.Namespace) -> int:
         )
         print(summary)
         print(f"  {profile['description']}")
+        fact_labels = [str(item.get("label", "")).strip() for item in profile.get("facts", []) if str(item.get("label", "")).strip()]
+        if fact_labels:
+            print(f"  Facts: {' | '.join(fact_labels[:4])}")
     return 0
 
 
