@@ -216,6 +216,10 @@ class DashboardCopyConfig:
     run_summary_empty: str
     manifest_empty: str
     result_review_title: str
+    review_read_title: str
+    review_read_empty: str
+    review_next_steps_title: str
+    review_next_steps_empty: str
     compare_label: str
     manifest_button: str
     open_output_button: str

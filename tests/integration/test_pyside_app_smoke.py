@@ -93,6 +93,10 @@ class PySideAppSmokeTests(unittest.TestCase):
             self.assertFalse(window.windowIcon().isNull())
             self.assertTrue(bool(window.ingest_page.drop_target.toolTip()))
             self.assertTrue(window.queue_bar.isHidden())
+            self.assertEqual(
+                window.dashboard_page.review_read_headline.text(),
+                window.ui_config.copy.dashboard.review_read_empty,
+            )
             self._wait_for(
                 app,
                 lambda: window.ingest_page.runtime_doctor_summary.text() != "Waiting for the first environment refresh.",
@@ -176,6 +180,11 @@ class PySideAppSmokeTests(unittest.TestCase):
             self.assertIn("Next up:", window.queue_bar.summary_label.text())
             self.assertEqual(window.dashboard_page.overall_progress_bar.value(), 0)
             self.assertIn("queued and ready for execution", window.dashboard_page.focus_label.text().lower())
+            self.assertTrue(window.dashboard_page.review_read_headline.text().strip())
+            self.assertIn(
+                "play one bright scene",
+                window.dashboard_page.review_next_steps_view.toPlainText().lower(),
+            )
             self.assertTrue(window.dashboard_page.open_output_button.isEnabled())
 
             window.workspace_page.preview_compare.clear_preview()

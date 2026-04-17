@@ -1456,6 +1456,120 @@ def build_media_change_highlights(payload: dict[str, Any] | None) -> list[dict[s
     return highlights[:4]
 
 
+def build_result_review_read(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if payload is None:
+        return {"tone": "info", "headline": "", "summary": "", "next_steps": []}
+
+    encode_settings = dict(payload.get("encode_settings", {}))
+    media_metrics = dict(encode_settings.get("media_metrics", {}))
+    comparison = dict(media_metrics.get("comparison", {}))
+    input_metrics = dict(media_metrics.get("input", {}))
+    output_metrics = dict(media_metrics.get("output", {}))
+    input_video = dict(input_metrics.get("video", {}))
+    output_video = dict(output_metrics.get("video", {}))
+    warnings = [str(item).strip() for item in payload.get("warnings", []) if str(item).strip()]
+    guidance = [
+        str(item).strip()
+        for item in encode_settings.get("conversion_guidance", [])
+        if str(item).strip()
+    ] or [
+        str(item).strip()
+        for item in comparison.get("guidance", [])
+        if str(item).strip()
+    ]
+
+    subtitle_stream_delta = _safe_int(comparison.get("subtitle_stream_delta")) or 0
+    chapter_delta = _safe_int(comparison.get("chapter_delta")) or 0
+    audio_changed = bool(comparison.get("audio_codec_changed"))
+    subtitle_changed = bool(comparison.get("subtitle_codec_changed"))
+    size_ratio = _safe_float(comparison.get("size_ratio"))
+    input_fps = _safe_float(input_video.get("avg_frame_rate_fps"))
+    output_fps = _safe_float(output_video.get("avg_frame_rate_fps"))
+    cadence_changed = (
+        input_fps is not None
+        and output_fps is not None
+        and abs(input_fps - output_fps) >= 0.5
+    )
+
+    if subtitle_stream_delta < 0 or chapter_delta < 0:
+        return {
+            "tone": "danger",
+            "headline": "Review before trusting this lane",
+            "summary": (
+                _pick_guidance(guidance, "subtitle", "chapter")
+                or "Subtitle or chapter preservation changed during delivery. Treat this output as a compatibility check until you confirm the missing streams are acceptable."
+            ),
+            "next_steps": [
+                "Open the manifest and confirm which subtitle or chapter streams changed.",
+                "If preservation matters, switch back to an MKV archive lane and rerun one representative file.",
+                "Use the review player to confirm the kept streams still look and sound right.",
+            ],
+        }
+
+    if cadence_changed:
+        return {
+            "tone": "warning",
+            "headline": "Motion needs a quick trust pass",
+            "summary": (
+                _pick_guidance(guidance, "frame rate changed")
+                or "Frame cadence changed materially between source and output. That can be okay for telecine-heavy material, but it deserves a motion review before you trust this lane on more files."
+            ),
+            "next_steps": [
+                "Use side-by-side or A/B playback on dialogue and movement before scaling this lane to more files.",
+                "If motion feels wrong, revisit the repair or cadence stages before rerunning.",
+                "Keep one representative output aside as the cadence baseline for the rest of the batch.",
+            ],
+        }
+
+    if size_ratio is not None and size_ratio > 1.05:
+        return {
+            "tone": "warning",
+            "headline": "Output is heavier than the source sample",
+            "summary": (
+                _pick_guidance(guidance, "larger than the source sample", "compatibility")
+                or "This delivery lane grew beyond the source sample size. That can be acceptable for compatibility, but it should be a conscious tradeoff."
+            ),
+            "next_steps": [
+                "If storage matters, try an HEVC archive lane or raise CRF slightly.",
+                "Recompare one representative source after any delivery change instead of rerunning the whole batch immediately.",
+                "Keep compatibility delivery only where playback reach matters more than archive size.",
+            ],
+        }
+
+    if audio_changed or subtitle_changed:
+        return {
+            "tone": "warning",
+            "headline": "Delivery changed for compatibility",
+            "summary": (
+                _pick_guidance(guidance, "compatibility", "audio changed", "subtitle")
+                or "Audio or subtitle delivery changed for compatibility reasons. That may be the right call, but it is worth confirming before you bless the lane."
+            ),
+            "next_steps": [
+                "Read the guidance and metrics table to confirm the codec and stream tradeoff is acceptable.",
+                "Spot-check playback on the device or app that motivated this compatibility lane.",
+                "If preservation matters more, move back to the archive lane and rerun one sample.",
+            ],
+        }
+
+    next_steps = [
+        "Play one bright scene and one darker scene before trusting this lane on more files.",
+        "Open the output folder if you want a quick external player QC pass.",
+        "If the sample still looks good, keep this delivery lane for the rest of the batch.",
+    ]
+    if warnings:
+        next_steps[-1] = f"Note the current warning before scaling up: {warnings[0]}"
+
+    return {
+        "tone": "success",
+        "headline": "Result looks aligned for wider review",
+        "summary": (
+            _pick_guidance(guidance, "smaller than the source sample", "current delivery settings")
+            or "This sample avoided the biggest trust warnings and is a good candidate for broader batch rollout after one quick spot-check."
+        ),
+        "next_steps": next_steps,
+    }
+
+
 def _format_media_metrics_block(label: str, metrics: dict[str, Any]) -> list[str]:
     video = dict(metrics.get("video", {}))
     audio = dict(metrics.get("audio", {}))
@@ -1704,6 +1818,39 @@ class DashboardPage(QWidget):
         self.selected_job_label.setStyleSheet("color: #9aa8b7;")
         layout.addWidget(self.selected_job_label)
 
+        review_read_frame = QFrame()
+        review_read_frame.setObjectName("panelFrame")
+        review_read_layout = QVBoxLayout(review_read_frame)
+        review_read_layout.setContentsMargins(16, 16, 16, 16)
+        review_read_layout.setSpacing(10)
+
+        review_read_title = QLabel(self.ui_config.copy.dashboard.review_read_title)
+        review_read_title.setObjectName("sectionTitle")
+        review_read_layout.addWidget(review_read_title)
+
+        self.review_read_headline = QLabel(self.ui_config.copy.dashboard.review_read_empty)
+        self.review_read_headline.setWordWrap(True)
+        self.review_read_headline.setStyleSheet("font-size: 18px; font-weight: 700; color: #f4f8fb;")
+        review_read_layout.addWidget(self.review_read_headline)
+
+        self.review_read_summary = QLabel(self.ui_config.copy.dashboard.review_read_empty)
+        self.review_read_summary.setWordWrap(True)
+        self.review_read_summary.setStyleSheet("color: #9aa8b7;")
+        review_read_layout.addWidget(self.review_read_summary)
+
+        next_steps_title = QLabel(self.ui_config.copy.dashboard.review_next_steps_title)
+        next_steps_title.setObjectName("sectionTitle")
+        review_read_layout.addWidget(next_steps_title)
+
+        self.review_next_steps_view = QTextEdit()
+        self.review_next_steps_view.setReadOnly(True)
+        self.review_next_steps_view.setMinimumHeight(88)
+        self.review_next_steps_view.setPlainText(self.ui_config.copy.dashboard.review_next_steps_empty)
+        review_read_layout.addWidget(self.review_next_steps_view)
+
+        _set_tooltip(review_read_frame, self.ui_config.copy.tooltip("dashboard_review_read"))
+        layout.addWidget(review_read_frame)
+
         highlights_frame = QFrame()
         highlights_frame.setObjectName("panelFrame")
         highlights_layout = QVBoxLayout(highlights_frame)
@@ -1874,6 +2021,7 @@ class DashboardPage(QWidget):
 
     def apply_run_manifest(self, payload: dict[str, Any] | None) -> None:
         if payload is None:
+            self._apply_review_read(None)
             self._apply_highlights(None)
             self._apply_metrics_snapshot(None)
             self.run_summary_view.setPlainText(self.ui_config.copy.dashboard.run_summary_empty)
@@ -1884,11 +2032,42 @@ class DashboardPage(QWidget):
         job_id = self.controller.session.selected_job_id
         execution_mode = payload.get("encode_settings", {}).get("execution_mode", "not run yet")
         self.selected_job_label.setText(f"Selected job {job_id[:8]} · {execution_mode}")
+        self._apply_review_read(payload)
         self._apply_highlights(payload)
         self._apply_metrics_snapshot(payload)
         self.run_summary_view.setPlainText(build_run_summary(payload))
         self.manifest_view.setPlainText(json.dumps(payload, indent=2, sort_keys=True))
         self._load_review_media(job_id, payload)
+
+    def _apply_review_read(self, payload: dict[str, Any] | None) -> None:
+        review_read = build_result_review_read(payload)
+        if payload is None:
+            self.review_read_headline.setText(self.ui_config.copy.dashboard.review_read_empty)
+            self.review_read_summary.setText("")
+            self.review_read_summary.setStyleSheet(self._review_read_summary_style("info"))
+            self.review_next_steps_view.setPlainText(self.ui_config.copy.dashboard.review_next_steps_empty)
+            return
+
+        tone = str(review_read.get("tone", "info"))
+        self.review_read_headline.setText(str(review_read.get("headline", self.ui_config.copy.dashboard.review_read_empty)))
+        self.review_read_summary.setText(str(review_read.get("summary", "")))
+        self.review_read_summary.setStyleSheet(self._review_read_summary_style(tone))
+        next_steps = [str(item).strip() for item in review_read.get("next_steps", []) if str(item).strip()]
+        self.review_next_steps_view.setPlainText(
+            "\n".join(f"- {step}" for step in next_steps)
+            if next_steps
+            else self.ui_config.copy.dashboard.review_next_steps_empty
+        )
+
+    def _review_read_summary_style(self, tone: str) -> str:
+        palette = {
+            "success": "#9fe0c3",
+            "warning": "#f0ce75",
+            "danger": "#f2a3a3",
+            "info": "#9aa8b7",
+        }
+        color = palette.get(tone, palette["info"])
+        return f"color: {color};"
 
     def _apply_highlights(self, payload: dict[str, Any] | None) -> None:
         highlights = build_media_change_highlights(payload)

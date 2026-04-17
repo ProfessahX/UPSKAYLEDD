@@ -39,10 +39,16 @@ class DesktopUiConfigTests(unittest.TestCase):
         self.assertEqual(config.copy.dashboard.metrics_guidance_title, "What Changed")
         self.assertEqual(config.copy.dashboard.metrics_guidance_empty, "No notable conversion guidance for the selected run.")
         self.assertEqual(config.copy.dashboard.run_summary_title, "Run Summary")
+        self.assertEqual(config.copy.dashboard.review_read_title, "Keep / Adjust")
+        self.assertEqual(
+            config.copy.dashboard.review_next_steps_empty,
+            "Next-step guidance will appear once a completed job is selected.",
+        )
         self.assertEqual(config.copy.dashboard.overview_title, "Batch Overview")
         self.assertEqual(config.copy.dashboard.open_output_button, "Open Output Folder")
         self.assertIn("drag", config.copy.tooltip("drop_target").lower())
         self.assertIn("queue", config.copy.tooltip("workspace_queue_project").lower())
+        self.assertIn("trust read", config.copy.tooltip("dashboard_review_read").lower())
         self.assertIn("profile-outlier", config.copy.summary.batch_review_attention)
 
         upscale = config.stage("upscale")

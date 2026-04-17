@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import sys
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ from pyside_app.window import (
     build_dashboard_focus_text,
     build_media_change_highlights,
     build_media_metrics_snapshot,
+    build_result_review_read,
     build_run_summary,
 )
 
@@ -165,6 +167,44 @@ class DesktopWindowHelperTests(unittest.TestCase):
         self.assertEqual("warning", highlights[2]["tone"])
         self.assertEqual("Streams", highlights[3]["title"])
         self.assertEqual("Delivery changed", highlights[3]["value"])
+
+    def test_build_result_review_read_flags_stream_loss_as_danger(self) -> None:
+        payload = copy.deepcopy(sample_run_payload())
+        payload["encode_settings"]["media_metrics"]["comparison"]["subtitle_stream_delta"] = -1
+
+        review_read = build_result_review_read(payload)
+
+        self.assertEqual("danger", review_read["tone"])
+        self.assertIn("trust", review_read["headline"].lower())
+        self.assertTrue(any("mkv archive lane" in step.lower() for step in review_read["next_steps"]))
+
+    def test_build_result_review_read_flags_cadence_shift_as_warning(self) -> None:
+        review_read = build_result_review_read(sample_run_payload())
+
+        self.assertEqual("warning", review_read["tone"])
+        self.assertIn("motion", review_read["headline"].lower())
+        self.assertTrue(any("side-by-side" in step.lower() or "a/b" in step.lower() for step in review_read["next_steps"]))
+
+    def test_build_result_review_read_marks_aligned_output_as_success(self) -> None:
+        payload = copy.deepcopy(sample_run_payload())
+        comparison = payload["encode_settings"]["media_metrics"]["comparison"]
+        input_video = payload["encode_settings"]["media_metrics"]["input"]["video"]
+        output_video = payload["encode_settings"]["media_metrics"]["output"]["video"]
+        comparison["audio_codec_changed"] = False
+        comparison["subtitle_codec_changed"] = False
+        comparison["size_ratio"] = 0.92
+        input_video["avg_frame_rate_fps"] = 23.98
+        output_video["avg_frame_rate_fps"] = 23.98
+        payload["encode_settings"]["conversion_guidance"] = [
+            "Output landed smaller than the source sample with the current delivery settings."
+        ]
+        payload["warnings"] = []
+
+        review_read = build_result_review_read(payload)
+
+        self.assertEqual("success", review_read["tone"])
+        self.assertIn("aligned", review_read["headline"].lower())
+        self.assertTrue(any("spot-check" in step.lower() or "looks good" in step.lower() for step in review_read["next_steps"]))
 
 
 if __name__ == "__main__":
