@@ -58,6 +58,18 @@ class PathResolutionTests(unittest.TestCase):
         temp_dir_handle.cleanup()
         self.assertFalse(handle_path.exists())
 
+    def test_expand_config_path_translates_windows_env_paths_inside_wsl(self) -> None:
+        with (
+            patch.object(paths.os, "name", "posix"),
+            patch.dict(paths.os.environ, {"WSL_DISTRO_NAME": "Ubuntu-24.04", "LOCALAPPDATA": r"C:\Users\TestUser\AppData\Local"}, clear=False),
+        ):
+            expanded = paths.expand_config_path("%LOCALAPPDATA%/UPSKAYLEDD/models")
+
+        self.assertEqual(
+            str(expanded),
+            "/mnt/c/Users/TestUser/AppData/Local/UPSKAYLEDD/models",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

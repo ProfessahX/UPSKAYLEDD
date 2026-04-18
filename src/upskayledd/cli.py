@@ -144,10 +144,15 @@ def command_platform_matrix(args: argparse.Namespace) -> int:
         degraded = int(context.get("degraded_check_count", 0) or 0)
         actions = int(context.get("action_count", 0) or 0)
         print(f"  Missing checks: {missing} | Degraded checks: {degraded} | Setup actions: {actions}")
+        canonical_runtime_status = str(context.get("canonical_runtime_status", "")).strip()
+        if canonical_runtime_status:
+            print(f"  Canonical runtime: {canonical_runtime_status}")
         execution_smoke = dict(context.get("execution_smoke", {}))
         smoke_status = str(execution_smoke.get("status", "")).strip()
         if smoke_status:
-            print(f"  Execution smoke: {smoke_status}")
+            smoke_mode = str(execution_smoke.get("execution_mode", "")).strip()
+            mode_suffix = f" ({smoke_mode})" if smoke_mode else ""
+            print(f"  Execution smoke: {smoke_status}{mode_suffix}")
             smoke_detail = str(execution_smoke.get("detail", "")).strip()
             if smoke_detail:
                 print(f"    {smoke_detail}")

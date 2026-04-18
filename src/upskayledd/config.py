@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import os
-import platform
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from upskayledd.core.errors import ConfigError
-from upskayledd.core.paths import repo_root, resolve_repo_path
+from upskayledd.core.paths import expand_config_path, repo_root, resolve_repo_path, running_inside_wsl
 
 
 @dataclass(slots=True, frozen=True)
@@ -346,15 +345,6 @@ def _validate_encode_profile_ids(
     return profile_ids
 
 
-def _is_wsl_environment() -> bool:
-    if os.name == "nt":
-        return False
-    release = platform.uname().release.lower()
-    if "microsoft" in release or "wsl" in release:
-        return True
-    return bool(os.environ.get("WSL_DISTRO_NAME"))
-
-
 def _load_conversion_guidance(config_dir: Path, encode_config: EncodeProfileConfig) -> ConversionGuidanceConfig:
     payload = _read_toml(config_dir / "conversion_guidance.toml")
     thresholds = payload.get("thresholds", {})
@@ -488,13 +478,17 @@ def _load_runtime_actions(config_dir: Path) -> RuntimeActionConfig:
 
 def _normalize_model_dirs(raw_dirs: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     normalized: list[str] = []
-    is_wsl = _is_wsl_environment()
+    is_wsl = running_inside_wsl()
     for raw_dir in raw_dirs:
         candidate = str(raw_dir).strip()
         if not candidate:
             continue
         if candidate.startswith("%LOCALAPPDATA%") and os.name != "nt" and not is_wsl:
             continue
+        if candidate.startswith("%") and is_wsl:
+            expanded = str(expand_config_path(candidate))
+            if "%" in expanded:
+                continue
         if candidate.startswith("$HOME") and os.name == "nt" and not is_wsl:
             continue
         if candidate.startswith("~") and os.name == "nt" and not is_wsl:
