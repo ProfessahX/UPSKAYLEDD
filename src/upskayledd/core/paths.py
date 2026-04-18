@@ -28,7 +28,7 @@ def writable_app_root(app_name: str = "UPSKAYLEDD") -> Path:
     return base / app_name
 
 
-def _running_inside_wsl() -> bool:
+def running_inside_wsl() -> bool:
     if os.name == "nt":
         return False
     if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
@@ -41,7 +41,7 @@ def _running_inside_wsl() -> bool:
 
 
 def _translate_windows_path_for_wsl(text: str) -> str:
-    if not _running_inside_wsl():
+    if not running_inside_wsl():
         return text
     match = WINDOWS_DRIVE_PATH_PATTERN.match(text)
     if not match:

@@ -67,7 +67,7 @@ def summarize_context(
     smoke_status = str(smoke.get("status", "")).strip().lower()
     canonical_runtime_gaps = [
         item
-        for item in (*actionable_missing_checks, *actionable_degraded_checks)
+        for item in (*missing_checks, *degraded_checks)
         if str(item.get("name", "")).strip() in CANONICAL_RUNTIME_CHECKS
     ]
     canonical_runtime_ready = available and not canonical_runtime_gaps

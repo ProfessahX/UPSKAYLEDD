@@ -196,6 +196,35 @@ class PlatformValidationMatrixToolTests(unittest.TestCase):
             ["Native and collected secondary runtime contexts look aligned enough for the current release-hardening pass."],
         )
 
+    def test_canonical_runtime_gaps_ignore_actionable_filtering(self) -> None:
+        module = _load_module()
+        context = module.summarize_context(
+            "linux_wsl",
+            "Linux (WSL)",
+            {
+                "platform_summary": "Linux (WSL) · 6.6.87.2-microsoft-standard-WSL2 · x86_64 · Python 3.12.3",
+                "checks": [
+                    {"name": "vapoursynth", "status": "missing"},
+                    {"name": "ffmpeg", "status": "healthy"},
+                ],
+                "warnings": [],
+                "path_rules": [],
+            },
+            {"actions": []},
+            actionable_check_names={"ffmpeg"},
+            execution_smoke={"status": "passed", "execution_mode": "degraded", "detail": "tiny degraded run passed"},
+        )
+
+        watch_items = module.build_watch_items([context])
+
+        self.assertEqual(context["actionable_missing_check_count"], 0)
+        self.assertFalse(context["canonical_runtime_ready"])
+        self.assertEqual(context["canonical_runtime_status"], "incomplete")
+        self.assertIn(
+            "Linux (WSL) passed a degraded smoke run, but the canonical runtime is still incomplete.",
+            watch_items,
+        )
+
     def test_unavailable_native_context_still_participates_in_watch_items(self) -> None:
         module = _load_module()
         native = module.summarize_context(

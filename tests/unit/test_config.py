@@ -116,7 +116,7 @@ class ConfigTests(unittest.TestCase):
 
         with (
             patch("upskayledd.config.os.name", "posix"),
-            patch("upskayledd.config._is_wsl_environment", return_value=True),
+            patch("upskayledd.config.running_inside_wsl", return_value=True),
             patch.dict("upskayledd.config.os.environ", {"LOCALAPPDATA": r"C:\Users\TestUser\AppData\Local"}, clear=False),
         ):
             model_dirs = _normalize_model_dirs(raw_dirs)
@@ -128,20 +128,20 @@ class ConfigTests(unittest.TestCase):
     def test_normalize_model_dirs_drops_unresolved_windows_env_dirs_inside_wsl(self) -> None:
         raw_dirs = (
             "runtime/models",
-            "%LOCALAPPDATA%/UPSKAYLEDD/models",
+            "%APPDATA%/UPSKAYLEDD/models",
             "$HOME/.local/share/upskayledd/models",
         )
 
         with (
             patch("upskayledd.config.os.name", "posix"),
-            patch("upskayledd.config._is_wsl_environment", return_value=True),
+            patch("upskayledd.config.running_inside_wsl", return_value=True),
             patch.dict("upskayledd.config.os.environ", {}, clear=True),
         ):
             model_dirs = _normalize_model_dirs(raw_dirs)
 
         self.assertIn("runtime/models", model_dirs)
         self.assertIn("$HOME/.local/share/upskayledd/models", model_dirs)
-        self.assertNotIn("%LOCALAPPDATA%/UPSKAYLEDD/models", model_dirs)
+        self.assertNotIn("%APPDATA%/UPSKAYLEDD/models", model_dirs)
 
 
 if __name__ == "__main__":
