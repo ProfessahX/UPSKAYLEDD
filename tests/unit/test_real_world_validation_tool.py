@@ -182,12 +182,16 @@ class RealWorldValidationToolTests(unittest.TestCase):
         summary = module.summarize_validation_results(
             [
                 {
+                    "source_name": "episode01.mkv",
                     "inspection": {
                         "detected_source_class": "sd_live_action_ntsc",
                         "recommended_profile_id": "sd_live_action_ntsc",
                     },
                     "sample_clip": {
                         "mode": "transcode_fallback",
+                        "fallback_reasons": [
+                            "copied sample drifts under ffms2/vspipe compared with the source cadence"
+                        ],
                     },
                     "output_policy": {
                         "encode_profile_id": "hevc_balanced_archive",
@@ -230,6 +234,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
                     },
                 },
                 {
+                    "source_name": "episode02.mkv",
                     "inspection": {
                         "detected_source_class": "sd_live_action_ntsc",
                         "recommended_profile_id": "sd_live_action_ntsc",
@@ -296,6 +301,29 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["canonical"]["output_frame_rates"], {"23.98 fps": 1, "29.97 fps": 1})
         self.assertEqual(summary["canonical"]["probe_frame_rates"], {"59.94 fps": 1})
         self.assertEqual(summary["canonical"]["decode_frame_rates"], {"23.98 fps": 1})
+        self.assertEqual(
+            summary["sample_fallback_reasons"],
+            {"copied sample drifts under ffms2/vspipe compared with the source cadence": 1},
+        )
+        self.assertEqual(
+            summary["canonical"]["cadence_groups"],
+            [
+                {
+                    "output_frame_rate": "23.98 fps",
+                    "decode_frame_rate": "23.98 fps",
+                    "probe_frame_rate": "59.94 fps",
+                    "source_count": 1,
+                    "source_names": ["episode01.mkv"],
+                },
+                {
+                    "output_frame_rate": "29.97 fps",
+                    "decode_frame_rate": "",
+                    "probe_frame_rate": "",
+                    "source_count": 1,
+                    "source_names": ["episode02.mkv"],
+                },
+            ],
+        )
         self.assertEqual(summary["sample_extraction_modes"], {"stream_copy": 1, "transcode_fallback": 1})
         self.assertEqual(
             summary["media_rollup"]["guidance_messages"],
@@ -306,7 +334,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
         )
         self.assertTrue(any("changed frame rate" in item for item in summary["watch_items"]))
         self.assertTrue(any("decode-aware interpretation" in item for item in summary["watch_items"]))
-        self.assertTrue(any("non-stream-copy extraction" in item for item in summary["watch_items"]))
+        self.assertTrue(any("copied sample drifts under ffms2/vspipe compared with the source cadence" in item for item in summary["watch_items"]))
         self.assertTrue(any("mixed frame-rate groups" in item for item in summary["watch_items"]))
         self.assertTrue(any("larger than its source clip" in item for item in summary["watch_items"]))
         self.assertTrue(any("dropped subtitle or chapter streams" in item for item in summary["watch_items"]))
@@ -405,6 +433,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
         summary = module.summarize_validation_results(
             [
                 {
+                    "source_name": "episode01.mkv",
                     "inspection": {
                         "detected_source_class": "sd_live_action_ntsc",
                         "recommended_profile_id": "sd_live_action_ntsc",
@@ -435,6 +464,7 @@ class RealWorldValidationToolTests(unittest.TestCase):
                     },
                 },
                 {
+                    "source_name": "episode02.mkv",
                     "inspection": {
                         "detected_source_class": "sd_live_action_ntsc",
                         "recommended_profile_id": "sd_live_action_ntsc",
@@ -470,6 +500,25 @@ class RealWorldValidationToolTests(unittest.TestCase):
         self.assertEqual(summary["canonical"]["output_frame_rates"], {"23.98 fps": 1, "29.97 fps": 1})
         self.assertEqual(summary["canonical"]["probe_frame_rates"], {"59.94 fps": 2})
         self.assertEqual(summary["canonical"]["decode_frame_rates"], {"23.98 fps": 1, "29.97 fps": 1})
+        self.assertEqual(
+            summary["canonical"]["cadence_groups"],
+            [
+                {
+                    "output_frame_rate": "23.98 fps",
+                    "decode_frame_rate": "23.98 fps",
+                    "probe_frame_rate": "59.94 fps",
+                    "source_count": 1,
+                    "source_names": ["episode01.mkv"],
+                },
+                {
+                    "output_frame_rate": "29.97 fps",
+                    "decode_frame_rate": "29.97 fps",
+                    "probe_frame_rate": "59.94 fps",
+                    "source_count": 1,
+                    "source_names": ["episode02.mkv"],
+                },
+            ],
+        )
         self.assertTrue(any("match the sampled decode cadence buckets" in item for item in summary["watch_items"]))
         self.assertFalse(
             any(
