@@ -87,6 +87,26 @@ def _count_map(values: list[str]) -> dict[str, int]:
     return dict(sorted(counter.items(), key=lambda item: (-item[1], item[0])))
 
 
+def _grouped_source_summary(groups: dict[tuple[str, str, str], list[str]]) -> list[dict[str, Any]]:
+    summarized: list[dict[str, Any]] = []
+    for key, source_names in sorted(
+        groups.items(),
+        key=lambda item: (-len(item[1]), item[0][0], item[0][1], item[0][2]),
+    ):
+        output_fps_label, decode_fps_label, probe_fps_label = key
+        unique_sources = sorted({name for name in source_names if str(name).strip()})
+        summarized.append(
+            {
+                "output_frame_rate": output_fps_label,
+                "decode_frame_rate": decode_fps_label,
+                "probe_frame_rate": probe_fps_label,
+                "source_count": len(unique_sources),
+                "source_names": unique_sources,
+            }
+        )
+    return summarized
+
+
 def _fps_bucket_label(value: object) -> str:
     fps = _safe_float(value)
     if fps is None:
@@ -657,6 +677,7 @@ def summarize_runtime_context(
 def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     items = list(results or [])
     sample_extraction_modes: list[str] = []
+    sample_fallback_reasons: list[str] = []
 
     def summarize_mode(runs: list[dict[str, Any]], key: str) -> dict[str, Any]:
         size_ratios: list[float] = []
@@ -673,6 +694,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
         output_frame_rates: list[str] = []
         probe_frame_rates: list[str] = []
         decode_frame_rates: list[str] = []
+        cadence_groups: dict[tuple[str, str, str], list[str]] = {}
         for item in runs:
             run = dict(item.get(key) or {})
             if str(run.get("error", "")).strip():
@@ -709,6 +731,9 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             decode_fps_label = _fps_bucket_label(sample_decode_fps)
             if decode_fps_label:
                 decode_frame_rates.append(decode_fps_label)
+            if output_fps_label or decode_fps_label or probe_fps_label:
+                group_key = (output_fps_label, decode_fps_label, probe_fps_label)
+                cadence_groups.setdefault(group_key, []).append(str(item.get("source_name", "")).strip())
             if (
                 key == "canonical_run"
                 and sample_probe_fps is not None
@@ -748,6 +773,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             "output_frame_rates": _count_map(output_frame_rates),
             "probe_frame_rates": _count_map(probe_frame_rates),
             "decode_frame_rates": _count_map(decode_frame_rates),
+            "cadence_groups": _grouped_source_summary(cadence_groups),
         }
 
     canonical = summarize_mode(items, "canonical_run")
@@ -778,9 +804,13 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
     source_resolutions: list[str] = []
     guidance_messages: list[str] = []
     for item in items:
-        sample_mode = str(dict(item.get("sample_clip", {}) or {}).get("mode", "")).strip()
+        sample_clip = dict(item.get("sample_clip", {}) or {})
+        sample_mode = str(sample_clip.get("mode", "")).strip()
         if sample_mode:
             sample_extraction_modes.append(sample_mode)
+        sample_fallback_reasons.extend(
+            [str(reason).strip() for reason in sample_clip.get("fallback_reasons", []) if str(reason).strip()]
+        )
         canonical_metrics = dict(dict(item.get("canonical_run", {})).get("media_metrics", {}) or {})
         degraded_metrics = dict(dict(item.get("degraded_run", {})).get("media_metrics", {}) or {})
         source_metrics = dict(canonical_metrics.get("input", {}) or degraded_metrics.get("input", {}) or {})
@@ -815,10 +845,22 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             f"Sample metadata and ffms2 decode cadence disagreed on {canonical['decode_cadence_mismatch_count']}/{source_count} sampled source(s), so cadence warnings need decode-aware interpretation."
         )
     non_stream_copy_count = sum(1 for mode in sample_extraction_modes if mode and mode != "stream_copy")
+    fallback_reason_counts = _count_map(sample_fallback_reasons)
     if canonical["cadence_change_count"] and non_stream_copy_count:
-        watch_items.append(
-            f"{non_stream_copy_count}/{source_count} sampled source(s) required non-stream-copy extraction before validation, so cadence warnings should be confirmed on fuller source clips when motion trust matters."
-        )
+        if fallback_reason_counts:
+            fallback_reason, fallback_reason_count = next(iter(fallback_reason_counts.items()))
+            if fallback_reason_count >= non_stream_copy_count:
+                watch_items.append(
+                    f"{non_stream_copy_count}/{source_count} sampled source(s) required non-stream-copy extraction before validation because {fallback_reason}, so cadence warnings should be confirmed on fuller source clips when motion trust matters."
+                )
+            else:
+                watch_items.append(
+                    f"{non_stream_copy_count}/{source_count} sampled source(s) required non-stream-copy extraction before validation, and the most common fallback reason was {fallback_reason} ({fallback_reason_count}/{non_stream_copy_count} fallback sample(s))."
+                )
+        else:
+            watch_items.append(
+                f"{non_stream_copy_count}/{source_count} sampled source(s) required non-stream-copy extraction before validation, so cadence warnings should be confirmed on fuller source clips when motion trust matters."
+            )
     if len(canonical["output_frame_rates"]) > 1:
         if canonical["output_frame_rates"] == canonical["decode_frame_rates"]:
             watch_items.append(
@@ -858,6 +900,7 @@ def summarize_validation_results(results: list[dict[str, Any]]) -> dict[str, Any
             "guidance_messages": _count_map(guidance_messages),
         },
         "sample_extraction_modes": _count_map(sample_extraction_modes),
+        "sample_fallback_reasons": fallback_reason_counts,
         "canonical": canonical,
         "degraded": degraded,
         "watch_items": watch_items,
